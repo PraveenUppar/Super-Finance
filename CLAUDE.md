@@ -51,11 +51,13 @@ Everything follows from these. If a decision contradicts one, the decision is wr
 
 Next.js (App Router) + TypeScript · Tailwind · React Hook Form + Zod · `docx` npm · `decimal.js` · Vitest
 
-**Persistence:** local JSON files for now. Supabase (Postgres + Storage) added at S7 when uploads need it.
+**Persistence:** Supabase Postgres, org-scoped — see D74. Local JSON under `.data/` is retired now that the migration has landed; `SETU_DATA_DIR` and the old file-store code paths are gone.
 
-**S7/S9/S10 use the Gemini free tier (D43) — a hobby-project decision, not paid API credits.** S1 through S6 and S11 need no LLM at all. Free-tier content trains Google's models, which is fine for the seed and the public corpus and would need revisiting before any real issuer's data reached it.
+**Auth: Clerk (D74, supersedes D8).** Real sign-in, real organizations (one org = one project/issuer), two access tiers (`org:admin` edits/downloads, `org:member` views only) — see `lib/auth/require-role.ts`. This is separate from the pre-existing Promoter/CS/CFO/Legal/Auditor/Merchant-Banker picker (`lib/review/role.ts`), which still just labels who's acting in the document workflow and has no bearing on access.
 
-**Deliberately not used:** real auth (role-switcher over one seeded org), Python, LangChain, vector DB, Redis, Docker, GraphQL, monorepo, E2E suite.
+**S9/S10 use the Gemini free tier (D43) — a hobby-project decision, not paid API credits.** S1 through S6 and S11 need no LLM at all. Free-tier content trains Google's models, which is fine for the seed and the public corpus and would need revisiting before any real issuer's data reached it. (S7 itself remains paused — D67 — unaffected by D74.)
+
+**Deliberately not used:** Python, LangChain, vector DB, Redis, Docker, GraphQL, monorepo, E2E suite, Postgres RLS (enforcement lives in the app layer — see D74).
 
 ---
 

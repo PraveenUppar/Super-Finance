@@ -33,8 +33,8 @@ export interface LoadedIssuer {
  * (D33). Unanswered facts render as gaps instead, which is what the gap list
  * is for.
  */
-export function loadIssuer(): LoadedIssuer {
-  const stored = readFactBase();
+export async function loadIssuer(orgId: string): Promise<LoadedIssuer> {
+  const stored = await readFactBase(orgId);
   const isDemo = stored.version === 0;
   return {
     facts: isDemo ? vardhman : withAnswers(stored.facts),

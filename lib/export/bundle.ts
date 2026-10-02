@@ -31,11 +31,11 @@ export interface Assembled {
   certified: boolean;
 }
 
-export function assemble(): Assembled {
-  const { facts, isDemo, version, provenance } = loadIssuer();
-  const sections = renderSections(sectionRegistry, { facts });
+export async function assemble(orgId: string): Promise<Assembled> {
+  const { facts, isDemo, version, provenance } = await loadIssuer(orgId);
+  const sections = await renderSections(sectionRegistry, { orgId, facts });
   const { findings, summary } = assess(facts, sections);
-  const certified = readCertification().certified;
+  const certified = (await readCertification(orgId)).certified;
   return { facts, provenance, version, isDemo, sections, findings, summary, certified };
 }
 

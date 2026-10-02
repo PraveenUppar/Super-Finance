@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import { ChevronUp, ChevronDown, Trash2, CircleHelp, Plus } from 'lucide-react';
-import { saveField } from '@/app/intake/actions';
+import { saveField } from '@/app/(app)/intake/actions';
 import { formatCell, parseCell, type RepeaterColumn } from '@/lib/modules/repeater-spec';
 import { applyPaste, blankRow, parsePaste } from '@/lib/modules/paste';
 
@@ -76,7 +76,8 @@ export function Repeater({
     setRows([blankRow(columns)]);
     setState('saving');
     startTransition(async () => {
-      await saveField(moduleId, path, []);
+      const result = await saveField(moduleId, path, []);
+      if (!result.ok) window.alert(result.issues[0] ?? 'Could not save.');
       setState('saved');
     });
   };
@@ -108,7 +109,8 @@ export function Repeater({
     setNone(false);
     setState('saving');
     startTransition(async () => {
-      await saveField(moduleId, path, meaningful);
+      const result = await saveField(moduleId, path, meaningful);
+      if (!result.ok) window.alert(result.issues[0] ?? 'Could not save.');
       setState('saved');
     });
   };

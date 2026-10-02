@@ -69,10 +69,13 @@ export const riskFactors: SectionSpec = {
   order: 400,
   group: 'SECTION - RISK FACTORS',
   clause: 'ICDR Schedule VI Part A',
-  compute: ({ facts }: RenderContext): DocumentNode[] => {
+  compute: async ({ orgId, facts }: RenderContext): Promise<DocumentNode[]> => {
     const allRisks = selectRisks(riskArchetypes, facts);
-    const dismissedCount = allRisks.filter((r) => readDismissal(r.id)?.dismissed === true).length;
-    const risks = allRisks.filter((r) => readDismissal(r.id)?.dismissed !== true);
+    const dismissals = new Map(
+      await Promise.all(allRisks.map(async (r) => [r.id, await readDismissal(orgId, r.id)] as const)),
+    );
+    const dismissedCount = allRisks.filter((r) => dismissals.get(r.id)?.dismissed === true).length;
+    const risks = allRisks.filter((r) => dismissals.get(r.id)?.dismissed !== true);
     const nodes: DocumentNode[] = [
       h2('Risk Factors'),
       {
@@ -100,7 +103,7 @@ export const riskFactors: SectionSpec = {
       nodes.push(h3(CATEGORY_HEADING[category]));
       for (const risk of inCategory) {
         nodes.push(h4(risk.title));
-        const drafted = readNarrative(`risk.${risk.id}`, risk.factSlice);
+        const drafted = await readNarrative(orgId, `risk.${risk.id}`, risk.factSlice);
         nodes.push(para(drafted?.text ?? risk.detail));
       }
     }

@@ -3,22 +3,23 @@
 import { useTransition } from 'react';
 import { Check, RotateCcw, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { setSectionStatus } from '@/app/review/actions';
+import { setSectionStatus } from '@/app/(app)/review/actions';
+import { SectionComments } from '@/components/section-comments';
 import { sectionAnchor } from '@/lib/anchors';
 import type { SectionStatus } from '@/lib/review/types';
+import type { CommentEvent } from '@/lib/store/comment-store';
 
 export interface ReviewSectionCardData {
   id: string;
   title: string;
   status: SectionStatus;
+  comments: CommentEvent[];
 }
 
 /**
- * One rendered section, in the review workflow — simplified (D-design) to a
- * plain Draft / Reviewed toggle. `SectionStatus` still has four values
- * (READY_FOR_REVIEW, LOCKED included) and the store still accepts any of
- * them — nothing was deleted — this card just no longer offers the other
- * two as a click target, and drops the per-section comment thread entirely.
+ * One rendered section, in the review workflow — a Draft / Reviewed toggle
+ * plus its comment thread (`SectionComments`, restored — the actions and
+ * the store behind it were never removed, only the UI calling them was).
  */
 export function ReviewSectionCard({ section }: { section: ReviewSectionCardData }) {
   const [pending, startTransition] = useTransition();
@@ -26,7 +27,8 @@ export function ReviewSectionCard({ section }: { section: ReviewSectionCardData 
 
   const moveTo = (status: SectionStatus) => {
     startTransition(async () => {
-      await setSectionStatus(section.id, section.title, status);
+      const result = await setSectionStatus(section.id, section.title, status);
+      if (!result.ok && result.error) window.alert(result.error);
     });
   };
 
@@ -74,6 +76,8 @@ export function ReviewSectionCard({ section }: { section: ReviewSectionCardData 
           </>
         )}
       </Button>
+
+      <SectionComments sectionId={section.id} sectionTitle={section.title} comments={section.comments} />
     </li>
   );
 }

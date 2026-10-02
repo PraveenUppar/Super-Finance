@@ -1,25 +1,28 @@
-import { cookies } from 'next/headers';
+import { auth } from '@clerk/nextjs/server';
+import { currentAccessLevel } from '../auth/require-role';
+import { readMemberRole } from '../store/member-role-store';
 import { parseRole, type Role } from './types';
 
 /**
- * The acting role for this request, server-only (`next/headers`).
+ * The acting role for this request, server-only.
  *
- * Every write action in the review workflow calls this itself rather than
- * accepting a role as a function argument from the client — the switcher is
- * the only thing that writes the cookie, so an action reading it here gets
- * whatever was actually chosen, not whatever a stale client render believed.
- * Nothing enforces this role against what the action is allowed to do (the
- * user's explicit "track only" decision for S12): it exists so the audit log
- * can honestly say who, not to gate what.
+ * No longer a self-picked browser cookie — see the decision-log entry
+ * superseding D8/D71. Whoever holds Clerk's `org:admin` access (see
+ * `lib/auth/require-role.ts`'s `currentAccessLevel()`) always reads as
+ * `OWNER`, live from Clerk, never from a stored assignment that could go
+ * stale. Everyone else reads whatever the Owner assigned them in
+ * `lib/store/member-role-store.ts`, falling back to Promoter (the
+ * coordinator) if the Owner hasn't assigned anything yet — the same
+ * "unassigned still needs a usable default" reasoning `parseRole` already
+ * used for a missing cookie.
  */
-const ROLE_COOKIE = 'setu-role';
-
 export async function currentRole(): Promise<Role> {
-  const store = await cookies();
-  return parseRole(store.get(ROLE_COOKIE)?.value);
-}
+  const level = await currentAccessLevel();
+  if (level === 'OWNER') return 'OWNER';
 
-export async function setRoleCookie(role: Role): Promise<void> {
-  const store = await cookies();
-  store.set(ROLE_COOKIE, role, { path: '/', sameSite: 'lax' });
+  const { userId, orgId } = await auth();
+  if (!userId || !orgId) return 'PROMOTER';
+
+  const assigned = await readMemberRole(orgId, userId);
+  return assigned ? parseRole(assigned) : 'PROMOTER';
 }

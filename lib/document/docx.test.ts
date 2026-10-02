@@ -9,6 +9,15 @@ import { buildDocument, docxFilename, renderDocx } from './docx';
 import { collectPlaceholders, type DocumentNode } from './nodes';
 import { collectGaps, renderSections, type RenderedSection } from './section';
 import { sectionRegistry } from './sections';
+import { createFakeVersionedTable, __setVersionedTableForTests } from '../store/versioned-table';
+
+const ORG = 'org_test1';
+// Module-level fixtures below (`sections`, `sparseSections`) render the full
+// registry once, at import time — including the narrative sections, which
+// read `narrative-store.ts`/`risk-dismissal-store.ts`. No test here writes to
+// either store, so one fake installed for the whole file (never reset) is
+// enough — no per-test isolation needed the way section.test.ts's did.
+__setVersionedTableForTests(createFakeVersionedTable());
 
 /**
  * The DOCX is checked by opening the zip and reading the XML, not by trusting
@@ -59,11 +68,11 @@ const count = (haystack: string, needle: string | RegExp): number =>
     ? haystack.split(needle).length - 1
     : (haystack.match(new RegExp(needle.source, 'g')) ?? []).length;
 
-const sections = renderSections(sectionRegistry, { facts: vardhman });
+const sections = await renderSections(sectionRegistry, { orgId: ORG, facts: vardhman });
 
 /** A document with one fact in it: gaps everywhere. */
 const sparseFacts = withAnswers({ company: { name: 'Sparse Test Limited' } });
-const sparseSections = renderSections(sectionRegistry, { facts: sparseFacts });
+const sparseSections = await renderSections(sectionRegistry, { orgId: ORG, facts: sparseFacts });
 
 const nodesOf = (s: RenderedSection[]): DocumentNode[] => s.flatMap((x) => x.nodes);
 

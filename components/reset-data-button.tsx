@@ -4,7 +4,7 @@ import { useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { resetIntakeData } from '@/app/intake/actions';
+import { resetIntakeData } from '@/app/(app)/intake/actions';
 
 /**
  * Clears every module back to unanswered — symmetric with "Load demo data".
@@ -27,7 +27,8 @@ export function ResetDataButton() {
           return;
         }
         startTransition(async () => {
-          await resetIntakeData();
+          const result = await resetIntakeData();
+          if (!result.ok && result.error) window.alert(result.error);
           router.refresh();
         });
       }}

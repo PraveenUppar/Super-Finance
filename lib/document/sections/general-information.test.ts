@@ -11,6 +11,8 @@ import type { FactBase } from '../../facts/schema';
  * reader, not a reason to ask for them twice.
  */
 
+const ORG = 'org_test1';
+
 const textOf = (nodes: DocumentNode[]) =>
   nodes.map((n) => (n.type === 'paragraph' ? n.runs.map((r) => r.text).join('') : n.type === 'heading' ? n.text : '')).join('\n');
 
@@ -21,8 +23,8 @@ const variant = (mutate: (f: FactBase) => void): FactBase => {
 };
 
 describe('General Information', () => {
-  it('renders every intermediary already on file for Vardhman, gap-free', () => {
-    const nodes = renderSection(generalInformation, { facts: vardhman });
+  it('renders every intermediary already on file for Vardhman, gap-free', async () => {
+    const nodes = await renderSection(generalInformation, { orgId: ORG, facts: vardhman });
     const text = textOf(nodes);
     expect(text).toContain('Indorient Financial Services Limited'); // BRLM
     expect(text).toContain('Kanga and Company'); // Legal Advisor
@@ -34,43 +36,43 @@ describe('General Information', () => {
     expect(collectPlaceholders(nodes)).toHaveLength(0);
   });
 
-  it('finds the CFO among the Key Managerial Personnel by designation', () => {
-    const text = textOf(renderSection(generalInformation, { facts: vardhman }));
+  it('finds the CFO among the Key Managerial Personnel by designation', async () => {
+    const text = textOf(await renderSection(generalInformation, { orgId: ORG, facts: vardhman }));
     expect(text).toContain('Sunita Vardhman, Chief Financial Officer.');
   });
 
-  it('prints the Company Secretary with contact details', () => {
-    const text = textOf(renderSection(generalInformation, { facts: vardhman }));
+  it('prints the Company Secretary with contact details', async () => {
+    const text = textOf(await renderSection(generalInformation, { orgId: ORG, facts: vardhman }));
     expect(text).toContain(vardhman.company.companySecretary.name);
     expect(text).toContain(vardhman.company.companySecretary.email);
   });
 
-  it('cross-references Our Management for the Board, rather than repeating it', () => {
-    const text = textOf(renderSection(generalInformation, { facts: vardhman }));
+  it('cross-references Our Management for the Board, rather than repeating it', async () => {
+    const text = textOf(await renderSection(generalInformation, { orgId: ORG, facts: vardhman }));
     expect(text).toContain('For details of our Board of Directors, see "Our Management".');
   });
 
-  it('raises a real gap for a missing intermediary, not a silent absence', () => {
+  it('raises a real gap for a missing intermediary, not a silent absence', async () => {
     const f = variant((x) => {
       x.offer.bookRunningLeadManager = undefined;
     });
-    const nodes = renderSection(generalInformation, { facts: f });
+    const nodes = await renderSection(generalInformation, { orgId: ORG, facts: f });
     const gaps = collectPlaceholders(nodes);
     expect(gaps.some((g) => g.factPath === 'offer.bookRunningLeadManager')).toBe(true);
   });
 
-  it('falls back honestly when no KMP designation matches CFO', () => {
+  it('falls back honestly when no KMP designation matches CFO', async () => {
     const f = variant((x) => {
       x.management.keyManagerialPersonnel = x.management.keyManagerialPersonnel.filter(
         (k) => !/chief financial officer|cfo/i.test(k.designation),
       );
     });
-    const gaps = collectPlaceholders(renderSection(generalInformation, { facts: f }));
+    const gaps = collectPlaceholders(await renderSection(generalInformation, { orgId: ORG, facts: f }));
     expect(gaps.some((g) => g.factPath === 'management.keyManagerialPersonnel')).toBe(true);
   });
 
-  it('never crashes for a one-fact issuer', () => {
+  it('never crashes for a one-fact issuer', async () => {
     const sparse = { ...vardhman, offer: { ...vardhman.offer, bookRunningLeadManager: undefined, legalAdvisor: undefined, registrarToIssue: undefined, escrowCollectionBank: undefined, bankerToCompany: undefined } };
-    expect(() => renderSection(generalInformation, { facts: sparse })).not.toThrow();
+    await renderSection(generalInformation, { orgId: ORG, facts: sparse });
   });
 });

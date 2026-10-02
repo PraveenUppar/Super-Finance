@@ -3,7 +3,7 @@
 import { useTransition } from 'react';
 import { ShieldCheck, ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { certifyDocument, revokeDocumentCertification } from '@/app/review/actions';
+import { certifyDocument, revokeDocumentCertification } from '@/app/(app)/review/actions';
 import { ROLE_LABELS, type Role } from '@/lib/review/types';
 import { formatTimestamp } from '@/lib/review/timestamp';
 
@@ -15,18 +15,19 @@ export interface CertificationBannerData {
 
 /**
  * The MB certification action — the thing that lifts `UNSIGNED DRAFT — NOT
- * FOR FILING` on every export (D35), for real now that S12 exists. Visible
- * and usable regardless of the acting role (the user's "track only" S12
- * decision): nothing here blocks a non-MB role from clicking Certify, the
- * audit log just honestly records who did.
+ * FOR FILING` on every export (D35), for real now that S12 exists.
+ *
+ * Visible and usable by both Admin and Member — S12's original "track
+ * only" decision (any role can certify; the log just honestly records who)
+ * still holds, now for both organization access tiers too.
  */
 export function CertificationBanner({ data }: { data: CertificationBannerData }) {
   const [pending, startTransition] = useTransition();
 
   const act = () => {
     startTransition(async () => {
-      if (data.certified) await revokeDocumentCertification();
-      else await certifyDocument();
+      const result = data.certified ? await revokeDocumentCertification() : await certifyDocument();
+      if (!result.ok && result.error) window.alert(result.error);
     });
   };
 

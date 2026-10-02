@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { listVersions, readFactBase, readVersion, writeFacts } from '../store/fact-store';
+import { createFakeVersionedTable, __setVersionedTableForTests } from '../store/versioned-table';
 import { extractedProvenance } from '../facts/provenance';
 import {
   allProgress,
@@ -156,57 +154,59 @@ describe('progress', () => {
 });
 
 describe('the fact store', () => {
-  let dir: string;
+  const ORG = 'org_test1';
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'setu-store-'));
-    // The store resolves its paths per call, so pointing it at a temporary
-    // directory needs no module-cache surgery.
-    process.env.SETU_DATA_DIR = dir;
+    __setVersionedTableForTests(createFakeVersionedTable());
   });
 
   afterEach(() => {
-    delete process.env.SETU_DATA_DIR;
-    rmSync(dir, { recursive: true, force: true });
+    __setVersionedTableForTests(null);
   });
 
-  it('appends a version per write and never overwrites', () => {
-    expect(readFactBase().version).toBe(0);
+  it('appends a version per write and never overwrites', async () => {
+    expect((await readFactBase(ORG)).version).toBe(0);
 
-    writeFacts({ 'company.name': 'First Name Limited' }, 'issuer');
-    writeFacts({ 'company.name': 'Second Name Limited' }, 'issuer');
+    await writeFacts(ORG, { 'company.name': 'First Name Limited' }, 'issuer');
+    await writeFacts(ORG, { 'company.name': 'Second Name Limited' }, 'issuer');
 
-    expect(listVersions()).toEqual([1, 2]);
+    expect(await listVersions(ORG)).toEqual([1, 2]);
     // The earlier value is still readable — "who changed this, and when" is a
     // question a merchant banker will ask.
-    expect(readVersion(1).facts.company?.name).toBe('First Name Limited');
-    expect(readFactBase().facts.company?.name).toBe('Second Name Limited');
+    expect((await readVersion(ORG, 1)).facts.company?.name).toBe('First Name Limited');
+    expect((await readFactBase(ORG)).facts.company?.name).toBe('Second Name Limited');
   });
 
-  it('does not version a write that changes nothing', () => {
-    writeFacts({ 'company.name': 'Same Limited' }, 'issuer');
-    const before = readFactBase().version;
-    writeFacts({ 'company.name': 'Same Limited' }, 'issuer');
+  it('does not version a write that changes nothing', async () => {
+    await writeFacts(ORG, { 'company.name': 'Same Limited' }, 'issuer');
+    const before = (await readFactBase(ORG)).version;
+    await writeFacts(ORG, { 'company.name': 'Same Limited' }, 'issuer');
     // Autosave fires on every blur; a version per blur would bury real edits.
-    expect(readFactBase().version).toBe(before);
+    expect((await readFactBase(ORG)).version).toBe(before);
   });
 
-  it('records who supplied each fact', () => {
-    writeFacts({ 'company.cin': 'U29253MH2016PLC098765' }, 'issuer');
-    const p = readFactBase().provenance['company.cin'];
+  it('records who supplied each fact', async () => {
+    await writeFacts(ORG, { 'company.cin': 'U29253MH2016PLC098765' }, 'issuer');
+    const p = (await readFactBase(ORG)).provenance['company.cin'];
     expect(p.source).toBe('user');
     expect(p.updatedBy).toBe('issuer');
   });
 
-  it('accepts a provenanceFor override, for S7 extraction', () => {
-    writeFacts(
+  it('accepts a provenanceFor override, for S7 extraction', async () => {
+    await writeFacts(
+      ORG,
       { 'company.cin': 'U29253MH2016PLC098765' },
       'extraction',
       () => extractedProvenance('doc-1', 4, 0.9),
     );
-    const p = readFactBase().provenance['company.cin'];
+    const p = (await readFactBase(ORG)).provenance['company.cin'];
     expect(p.source).toBe('extracted');
     expect(p.confirmed).toBe(false);
     expect(p.ref).toEqual({ documentId: 'doc-1', page: 4 });
+  });
+
+  it('keeps organizations apart', async () => {
+    await writeFacts(ORG, { 'company.name': 'Org One Limited' }, 'issuer');
+    expect((await readFactBase('org_other')).version).toBe(0);
   });
 });

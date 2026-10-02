@@ -31,6 +31,8 @@ export { flattenSections, gapAnchorKeys, runKey, type RenderedSection, type Sect
 export type Producer = 'template' | 'computed' | 'narrative' | 'external';
 
 export interface RenderContext {
+  /** Which organization's stores (narrative drafts, risk dismissals) a narrative or computed section may read. */
+  orgId: string;
   facts: FactBase;
   provenance?: ProvenanceMap;
 }
@@ -83,18 +85,18 @@ export interface SectionSpec {
   /** Where the template text came from, so it can be re-verified. */
   extractedFrom?: string[];
 
-  /** Exactly one of the following, matching `producer`. */
+  /** Exactly one of the following, matching `producer`. May be async — computed sections that read `readNarrative`/`readDismissal` (e.g. risk-factors.ts) need to. */
   template?: string;
-  compute?: (ctx: RenderContext) => DocumentNode[];
+  compute?: (ctx: RenderContext) => DocumentNode[] | Promise<DocumentNode[]>;
   externalNote?: string;
   /**
    * D51: how `narrative` sections are DRAFTED — offline, via a script that
    * calls `draftNarrative()` (lib/llm/narrative.ts) and writes the result to
    * `lib/store/narrative-store.ts` under this spec's `id`. NOT read by
-   * `renderSection()` itself, which is synchronous and only reads whatever
-   * the store already holds; `promptSpec` exists so the generation tooling
-   * has one place, on the spec itself, to find "what should this section
-   * say" rather than a second registry kept in sync by hand.
+   * `renderSection()` itself, which only reads whatever the store already
+   * holds; `promptSpec` exists so the generation tooling has one place, on
+   * the spec itself, to find "what should this section say" rather than a
+   * second registry kept in sync by hand.
    */
   promptSpec?: {
     /** All the model may reference when drafting this section. Never the whole fact base. */
@@ -300,7 +302,7 @@ function paragraphsFrom(text: string): DocumentNode[] {
     .map((p) => ({ type: 'paragraph', runs: [{ text: p }] }));
 }
 
-export function renderSection(spec: SectionSpec, ctx: RenderContext): DocumentNode[] {
+export async function renderSection(spec: SectionSpec, ctx: RenderContext): Promise<DocumentNode[]> {
   if (spec.appliesIf && !spec.appliesIf(ctx.facts)) return [];
 
   switch (spec.producer) {
@@ -325,17 +327,19 @@ export function renderSection(spec: SectionSpec, ctx: RenderContext): DocumentNo
 
     case 'narrative': {
       // D51: a section-level draft, generated offline (see `promptSpec`
-      // above) and read back here — `renderSection` is synchronous, so
-      // drafting can never happen inline. Present, or the same honest gap
-      // this case has always shown, now with the heading every other
-      // producer already gets (D45's fallback shape, extended here).
+      // above) and read back here — drafting can never happen inline.
+      // Present, or the same honest gap this case has always shown, now
+      // with the heading every other producer already gets (D45's fallback
+      // shape, extended here).
       //
       // `readNarrative` only returns a draft whose OWN factSlice matches
       // what this issuer's facts produce right now — without that check a
       // draft generated for one issuer would silently render for another
       // (found the hard way in this same session: see `readNarrative`'s doc
       // comment in narrative-store.ts).
-      const drafted = spec.promptSpec ? readNarrative(spec.id, spec.promptSpec.factSlice(ctx.facts)) : null;
+      const drafted = spec.promptSpec
+        ? await readNarrative(ctx.orgId, spec.id, spec.promptSpec.factSlice(ctx.facts))
+        : null;
       return [
         { type: 'heading', level: 2, text: spec.title },
         ...(drafted
@@ -383,29 +387,29 @@ export function renderSection(spec: SectionSpec, ctx: RenderContext): DocumentNo
  * complaints about a document the reader then has to search by hand.
  */
 /** Render an ordered set of sections, keeping the section boundaries. */
-export function renderSections(specs: SectionSpec[], ctx: RenderContext): RenderedSection[] {
-  return specs
-    .slice()
-    .sort((a, b) => a.order - b.order)
-    .map((spec) => ({
+export async function renderSections(specs: SectionSpec[], ctx: RenderContext): Promise<RenderedSection[]> {
+  const ordered = specs.slice().sort((a, b) => a.order - b.order);
+  const rendered = await Promise.all(
+    ordered.map(async (spec) => ({
       id: spec.id,
       title: spec.title,
       group: spec.group,
       partOf: spec.partOf,
       anchor: sectionAnchor(spec.id),
-      nodes: renderSection(spec, ctx),
-    }))
-    /**
-     * A section switched off by `appliesIf` produces nothing, and must not
-     * appear in the outline either — a "Holds up" link that scrolls nowhere is
-     * worse than plain text, because the reader assumes they missed it.
-     */
-    .filter((section) => section.nodes.length > 0);
+      nodes: await renderSection(spec, ctx),
+    })),
+  );
+  /**
+   * A section switched off by `appliesIf` produces nothing, and must not
+   * appear in the outline either — a "Holds up" link that scrolls nowhere is
+   * worse than plain text, because the reader assumes they missed it.
+   */
+  return rendered.filter((section) => section.nodes.length > 0);
 }
 
 /** Render an ordered set of sections into one document. */
-export function renderDocument(specs: SectionSpec[], ctx: RenderContext): DocumentNode[] {
-  return flattenSections(renderSections(specs, ctx));
+export async function renderDocument(specs: SectionSpec[], ctx: RenderContext): Promise<DocumentNode[]> {
+  return flattenSections(await renderSections(specs, ctx));
 }
 
 /** A placeholder together with every section that renders it. */

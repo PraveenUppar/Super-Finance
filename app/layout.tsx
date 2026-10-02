@@ -1,9 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Space_Grotesk } from "next/font/google";
+import { ClerkProvider } from "@clerk/nextjs";
 import "./globals.css";
-import { Sidebar } from "@/components/sidebar";
-import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
-import { TooltipProvider } from "@/components/ui/tooltip";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -26,27 +24,26 @@ export const metadata: Metadata = {
 };
 
 /**
- * The one piece of persistent chrome in the app — there was none before S12.
- * A left sidebar replaces the old top bar now that there are enough
- * destinations (Home, Eligibility, Document, Intake, Review, Risks, Audit
- * log) to need real navigation, not a single wrapping row. The role switcher
- * used to live here too; it moved to `/intake` (`RolePicker`) so choosing who
- * you are and seeing that person's modules happen in one place.
+ * Fonts and Clerk only. The app's own chrome (the sidebar) and the
+ * "you need an organization" gate both live in `app/(app)/layout.tsx` now,
+ * a route group deliberately excluding `/sign-in` and `/sign-up` — see that
+ * file's comment for why.
  */
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} ${spaceGrotesk.variable} dark h-full antialiased`}
+    <ClerkProvider
+      signInUrl="/sign-in"
+      signUpUrl="/sign-up"
+      afterSignOutUrl="/sign-in"
+      signInFallbackRedirectUrl="/"
+      signUpFallbackRedirectUrl="/"
     >
-      <body className="h-full min-h-full">
-        <TooltipProvider>
-          <SidebarProvider>
-            <Sidebar />
-            <SidebarInset>{children}</SidebarInset>
-          </SidebarProvider>
-        </TooltipProvider>
-      </body>
-    </html>
+      <html
+        lang="en"
+        className={`${geistSans.variable} ${geistMono.variable} ${spaceGrotesk.variable} dark h-full antialiased`}
+      >
+        <body className="h-full min-h-full">{children}</body>
+      </html>
+    </ClerkProvider>
   );
 }

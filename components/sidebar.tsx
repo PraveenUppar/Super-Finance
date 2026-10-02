@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { OrganizationSwitcher, UserButton } from '@clerk/nextjs';
 import {
   Home,
   ClipboardCheck,
@@ -11,11 +12,14 @@ import {
   Download,
   ListChecks,
   AlertTriangle,
+  Users,
+  History,
   type LucideIcon,
 } from 'lucide-react';
 import {
   Sidebar as SidebarPrimitive,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -50,11 +54,17 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
     items: [
       { href: '/review', label: 'Review', icon: ListChecks },
       { href: '/export', label: 'Export', icon: Download },
-      // Audit log deliberately dropped from navigation (not deleted — still
-      // a real route at /review/audit, still logging every action). It only
-      // pays for itself with more than one real reviewer; for a solo demo
-      // it's just watching your own role-switches get recorded.
+      // Was deliberately left out of navigation for a solo demo, where it
+      // was only ever watching your own role-switches get recorded. Real
+      // organizations and real identity exist now (lib/auth/require-role.ts,
+      // the decision-log entry superseding D8/D71) — a real reviewer asking
+      // "who did what" needs to be able to find this page.
+      { href: '/review/audit', label: 'Audit Log', icon: History },
     ],
+  },
+  {
+    label: 'Project',
+    items: [{ href: '/settings/members', label: 'Members', icon: Users }],
   },
 ];
 
@@ -72,12 +82,12 @@ export function Sidebar() {
     <SidebarPrimitive collapsible="icon">
       <SidebarHeader>
         <div className="flex items-center gap-2 px-2 py-1.5 group-data-[collapsible=icon]:flex-col group-data-[collapsible=icon]:gap-1">
-          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-sidebar-primary text-xs font-semibold text-sidebar-primary-foreground">
-            S
-          </span>
-          <span className="font-heading text-sm font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
-            Super Finance
-          </span>
+          {/* The org switcher replaces the static logo — the org itself IS
+              the project (see the decision-log entry superseding D8/D71),
+              so naming which one you're in belongs at the very top. */}
+          <div className="group-data-[collapsible=icon]:hidden">
+            <OrganizationSwitcher hidePersonal afterSelectOrganizationUrl="/" afterCreateOrganizationUrl="/" />
+          </div>
           <SidebarTrigger className="ml-auto group-data-[collapsible=icon]:ml-0" />
         </div>
       </SidebarHeader>
@@ -105,6 +115,13 @@ export function Sidebar() {
           </SidebarGroup>
         ))}
       </SidebarContent>
+
+      <SidebarFooter>
+        <div className="flex items-center gap-2 px-2 py-1.5">
+          <UserButton />
+          <span className="text-sm text-sidebar-foreground/70 group-data-[collapsible=icon]:hidden">Account</span>
+        </div>
+      </SidebarFooter>
 
       <SidebarRail />
     </SidebarPrimitive>

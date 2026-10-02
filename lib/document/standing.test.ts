@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, beforeAll } from 'vitest';
 import { money } from '../facts/money';
 import type { FactBase } from '../facts/schema';
 import { vardhman } from '../seed/vardhman';
@@ -14,6 +14,7 @@ import { committeeTermsOfReference, personalGuaranteesGiven } from './sections/s
  * litigation section — extracted from two sources and switched by facts.
  */
 
+const ORG = 'org_test1';
 const cr = (v: string) => money(v, 'crores');
 const textOf = (nodes: DocumentNode[]) =>
   nodes
@@ -51,8 +52,8 @@ describe('committee terms of reference', () => {
     expect(audit).not.toContain('half-yearly');
   });
 
-  it('follow each committee table in Our Management', () => {
-    const text = textOf(renderSection(management, { facts: vardhman }));
+  it('follow each committee table in Our Management', async () => {
+    const text = textOf(await renderSection(management, { orgId: ORG, facts: vardhman }));
     const audit = text.indexOf('Terms of Reference of the Audit Committee');
     const nrc = text.indexOf('Terms of Reference of the Nomination and Remuneration Committee');
     const src = text.indexOf('Terms of Reference of the Stakeholders Relationship Committee');
@@ -66,13 +67,17 @@ describe('committee terms of reference', () => {
 });
 
 describe('interest of directors', () => {
-  const text = textOf(renderSection(management, { facts: vardhman }));
+  let text: string;
+
+  beforeAll(async () => {
+    text = textOf(await renderSection(management, { orgId: ORG, facts: vardhman }));
+  });
 
   it('names the promoter-directors as the only ones interested in the promotion', () => {
     expect(text).toContain('Except for Rajesh Vardhman and Sunita Vardhman, who are the Promoters of our Company, none of our Directors has any interest in the promotion or formation of our Company.');
   });
 
-  it('mentions personal guarantees only where a facility on file carries one', () => {
+  it('mentions personal guarantees only where a facility on file carries one', async () => {
     expect(personalGuaranteesGiven(vardhman)).toBe(true);
     expect(text).toContain('Certain of our Directors have provided personal guarantees');
     const unguaranteed: FactBase = {
@@ -80,7 +85,7 @@ describe('interest of directors', () => {
       financials: { ...vardhman.financials, borrowings: vardhman.financials.borrowings.map((b) => ({ ...b, security: 'Hypothecation of assets' })) },
     };
     expect(personalGuaranteesGiven(unguaranteed)).toBe(false);
-    expect(textOf(renderSection(management, { facts: unguaranteed }))).not.toContain('personal guarantees');
+    expect(textOf(await renderSection(management, { orgId: ORG, facts: unguaranteed }))).not.toContain('personal guarantees');
   });
 
   it('uses a two-year look-back and prints the bonus plan negative', () => {
@@ -90,8 +95,13 @@ describe('interest of directors', () => {
 });
 
 describe('interest of promoters and the undertakings', () => {
-  const nodes = renderSection(promoters, { facts: vardhman });
-  const text = textOf(nodes);
+  let nodes: DocumentNode[];
+  let text: string;
+
+  beforeAll(async () => {
+    nodes = await renderSection(promoters, { orgId: ORG, facts: vardhman });
+    text = textOf(nodes);
+  });
 
   it('prints the interest, property, payment and common-pursuit statements with two-year windows', () => {
     expect(text).toContain('Interest of our Promoters');
@@ -102,9 +112,9 @@ describe('interest of promoters and the undertakings', () => {
     expect(text).not.toContain('three years preceding the date of this Draft Red Herring Prospectus in which');
   });
 
-  it('prints the disclosed common pursuit where there is one', () => {
+  it('prints the disclosed common pursuit where there is one', async () => {
     const pursuit: FactBase = { ...vardhman, promoters: { ...vardhman.promoters, commonPursuitsDetails: 'Vardhman Tooling Private Limited manufactures tooling used by our Company.' } };
-    expect(textOf(renderSection(promoters, { facts: pursuit }))).toContain('Vardhman Tooling Private Limited manufactures tooling');
+    expect(textOf(await renderSection(promoters, { orgId: ORG, facts: pursuit }))).toContain('Vardhman Tooling Private Limited manufactures tooling');
   });
 
   it('prints all six undertakings as negatives for a clean issuer', () => {
@@ -122,13 +132,13 @@ describe('interest of promoters and the undertakings', () => {
     expect(gapsOf(nodes).filter((p) => p.startsWith('promoters.any') || p.startsWith('legal.'))).toEqual([]);
   });
 
-  it('turns a set flag into a gap for the particulars instead of printing the negative', () => {
+  it('turns a set flag into a gap for the particulars instead of printing the negative', async () => {
     const flagged: FactBase = {
       ...vardhman,
       promoters: { ...vardhman.promoters, anyFugitiveEconomicOffender: true },
       legal: { ...vardhman.legal, regulatoryActionAgainstPromotersSince: '2026-03-01' },
     };
-    const out = renderSection(promoters, { facts: flagged });
+    const out = await renderSection(promoters, { orgId: ORG, facts: flagged });
     expect(gapsOf(out)).toContain('promoters.anyFugitiveEconomicOffender');
     expect(gapsOf(out)).toContain('legal.regulatoryActionAgainstPromotersSince');
     expect(textOf(out)).not.toContain('has been declared a fugitive economic offender under Section 12 of the Fugitive Economic Offenders Act, 2018.');
@@ -136,8 +146,13 @@ describe('interest of promoters and the undertakings', () => {
 });
 
 describe('outstanding dues to creditors', () => {
-  const nodes = renderSection(litigation, { facts: vardhman });
-  const text = textOf(nodes);
+  let nodes: DocumentNode[];
+  let text: string;
+
+  beforeAll(async () => {
+    nodes = await renderSection(litigation, { orgId: ORG, facts: vardhman });
+    text = textOf(nodes);
+  });
 
   it('tables MSME and other creditors, totals them, and states the material creditors', () => {
     expect(text).toContain('Micro, small and medium enterprises | 38 | 215.00');
@@ -148,18 +163,18 @@ describe('outstanding dues to creditors', () => {
     expect(gapsOf(nodes).filter((p) => p.startsWith('financials.creditors'))).toEqual([]);
   });
 
-  it('flags a split that does not tie to trade payables', () => {
+  it('flags a split that does not tie to trade payables', async () => {
     const broken: FactBase = {
       ...vardhman,
       financials: { ...vardhman.financials, creditors: { ...vardhman.financials.creditors, otherAmount: cr('4.00') } },
     };
-    const gaps = collectPlaceholders(renderSection(litigation, { facts: broken }));
+    const gaps = collectPlaceholders(await renderSection(litigation, { orgId: ORG, facts: broken }));
     expect(gaps.some((g) => g.factPath === 'financials.creditors' && g.ask.includes('Rs 615.00 Lakhs') && g.ask.includes('Rs 680.00 Lakhs'))).toBe(true);
   });
 
-  it('asks for the split and the material creditors where they are not on file', () => {
+  it('asks for the split and the material creditors where they are not on file', async () => {
     const none: FactBase = { ...vardhman, financials: { ...vardhman.financials, creditors: {} } };
-    const gaps = collectPlaceholders(renderSection(litigation, { facts: none })).filter((g) => g.factPath === 'financials.creditors');
+    const gaps = collectPlaceholders(await renderSection(litigation, { orgId: ORG, facts: none })).filter((g) => g.factPath === 'financials.creditors');
     expect(gaps).toHaveLength(2);
   });
 });

@@ -4,11 +4,22 @@ Each stage ends with something demoable and a manual test gate. **Do not advance
 
 `🔴 core` (MVP dies without it) · `🟡 demo` (needed for the pitch) · `🟢 extended`
 
-**Progress** (`[x]` done, `[~]` partial, `[ ]` not started) — updated 2026-09-12
+**Progress** (`[x]` done, `[~]` partial, `[ ]` not started) — updated 2026-10-02
 
 | S0 | S1 | S2 | S3 | S4 | S5 | S6 | S7 | S8 | S9 | S10 | S11 | S12 | S13 |
 |----|----|----|----|----|----|----|----|----|----|-----|-----|-----|-----|
-| [x] | [x] | [x] | [x] | [~] | [x] | [x] | ⏸ | [x] | [x] | [~] | [x] | [x] | [ ] |
+| [x] | [x] | [x] | [x] | [~] | [x] | [x] | ⏸ | [x] | [x] | [x] | [x] | [x] | [x] |
+
+**S10 and S13 marked done 2026-10-02 by explicit user decision** — see each section below for what
+"done" means here: S10 at 22 archetypes (not the ~40 originally scoped) because the user judged 22
+sufficient; S13 as "tested by the user directly" rather than a separate rehearsed-demo pass.
+
+**S7: resumed 2026-10-02, then paused again the same day, both by explicit user decision.** The brief
+resumption shipped one real, permanent improvement — confidence flagging — before the user decided to
+drop the rest of the stage rather than take on the remaining ~18-28 hours of work (async job pattern,
+per-fact page numbers, click-to-source review UI, image/OCR routing, the 3-document accuracy
+benchmark). D67's original reasoning holds again: hand-typed intake is the path, extraction is dormant,
+not deleted. Do not resume without the user asking again.
 
 **⏸ = paused by explicit user decision (S7, 2026-09-12) — not done, not abandoned, not being worked on unless the user asks again.** Different from `[ ]` (not started) and `[~]` (in progress): this is a stage someone deliberately chose to stop advancing, with working code left in place.
 
@@ -180,37 +191,34 @@ Each stage ends with something demoable and a manual test gate. **Do not advance
 
 ---
 
-## ⏸ S7 — Upload & extraction · PAUSED 2026-09-12 (D67) — was 🔴 · 2 days ⭐
+## ⏸ S7 — Upload & extraction · PAUSED AGAIN 2026-10-02 — briefly resumed the same day · 2 days ⭐
 
-**Highest technical risk. Time-boxed hard — if it slips, seed the fact base directly and move on.**
-That risk is exactly why it turned out to be the right one to pause: **the user decided document
-upload and AI extraction add more complexity than they're worth for this project, and chose hand-typed
-form fields as the permanent path instead — not a temporary fallback while S7 catches up.**
+**Resumed 2026-10-02, then paused again within the same session, both by explicit user decision.**
+Weighed against the realistic remaining cost (~18–28 hours across the items below, genuinely a
+multi-session effort), the user chose to stop here rather than continue. One real, permanent
+improvement shipped during the brief resumption — confidence flagging, kept — everything else below
+is exactly where D67 originally left it. Do not resume without the user asking again.
 
-**Nothing below is deleted or being planned around.** The code stays in the tree, stays tested, and
-this checklist stays accurate for whenever (if ever) someone picks it back up. Do not resume any item
-below without the user explicitly asking first.
-
-**Opened 2026-09-12 (D56). Status below verified against the actual code the same day, not just the
-decision-log write-up** — the log describes what was built enthusiastically; this checklist says
-plainly what's still missing. Also note: the original plan named Claude for extraction; D43 moved
-S7/S9/S10 to Gemini free tier project-wide, so "Claude extraction" below means "Gemini extraction" now
-— not a gap, a superseded assumption.
-
-- [~] Upload to Supabase Storage; `documents` table; per-sector required-document checklist — Storage upload/download/list/remove is real (`lib/store/document-storage.ts`); there is no `documents` table anywhere and no per-sector checklist exists at all
-- [ ] **Async job pattern** — upload → `extractions` row `pending` → process → client polls. Never block a request. — NOT built: `app/extract/actions.ts`'s `uploadAndExtract` does upload → extract inline in one request; no job table, no polling
+- [~] Upload to Supabase Storage; `documents` table; per-sector required-document checklist — Storage upload/download/list/remove is real (`lib/store/document-storage.ts`); there is still no `documents` table and no per-sector checklist. **Not yet done.**
+- [ ] **Async job pattern** — upload → `extractions` row `pending` → process → client polls. Never block a request. — still NOT built: `uploadAndExtract` does upload → extract inline in one request. **Not yet done** — this project has no Redis/queue by design, so this needs a DB-row-plus-polling shape instead, not a queue.
 - [x] **Two-pass page targeting** — read text layer locally to find relevant page ranges, then send only those pages — real, `lib/document-intake/page-targeting.ts`, used live
-- [ ] Text/image routing — text layer + simple layout → send extracted text; scanned or complex tables → send PDF blocks — NOT built: `pdf-text.ts` always extracts the text layer; there is no image/PDF-block path for scanned documents at all
-- [~] Gemini extraction: schema → structured JSON **with page numbers** — the structured-JSON half works; page numbers are approximated as one page range for the WHOLE domain (`actions.ts`'s `firstTargetedPage`), not a real number per individual fact
-- [~] **Review-and-confirm UI** — extracted value beside rendered source page, highlighted. Confirm / Edit. — a real UI exists (`app/extract/page.tsx`) but shows plain text + a page range per top-level field, not a rendered source page with the value highlighted on it
-- [ ] Confidence flagging for low-certainty extractions — NOT built: `Provenance.confidence` exists as a field but nothing ever sets it
-- [~] **Save every extraction result to `fixtures/` so downstream work doesn't re-call the API** — the mechanism works (`snapshotResponse`) but only one document has ever been run through it (`fixtures/extraction/om-galaxy.company.json`)
+- [ ] Text/image routing — text layer + simple layout → send extracted text; scanned or complex tables → send PDF blocks — still NOT built. **Not yet done.**
+- [~] Gemini extraction: schema → structured JSON **with page numbers** — page numbers are still a per-domain approximation, not per-fact. **Not yet done.**
+- [~] **Review-and-confirm UI** — extracted value beside rendered source page, highlighted. Confirm / Edit. — still plain text + a page range, not a rendered source page. **Not yet done.**
+- [x] **Confidence flagging for low-certainty extractions** — DONE 2026-10-02: `fieldConfidence()` (`lib/llm/extraction.ts`) checks each extracted field's own value against the source page text it came from, mechanically — the same discipline as `narrative.ts`'s `untraceableNumbers()`, deliberately NOT a self-reported model score (D18's lesson generalised). Wired through `uploadAndExtract` → the review UI (a "Low confidence" badge) → `confirmExtraction` → `Provenance.confidence`, which previously existed as a field nothing ever set.
+- [~] **Save every extraction result to `fixtures/`** — mechanism works, still only one document ever run through it. **Not yet done.**
 
 ### ✅ Gate
-- [~] Upload a real SME annual report → 20+ facts with correct page refs — one real document run (Om Galaxy, one domain, ~25-30 facts), but "page refs" are per-domain approximations, not verified per-fact
-- [ ] Click an extracted fact → jumps to right page, right highlight — NOT built: no click/jump handler exists in the review UI at all
-- [ ] Run 3 S0 input documents, hand-diff against ground truth, **record field-level accuracy** (this is a slide) — only 1 of 3 documents run; no accuracy number recorded anywhere
-- [x] Nothing enters the fact base without confirmation — verified enforced: `confirmExtraction` is the only write path, and `isUsable()` refuses any extracted fact where `confirmed` is not true
+- [~] Upload a real SME annual report → 20+ facts with correct page refs — unchanged, one real document run
+- [ ] Click an extracted fact → jumps to right page, right highlight — still NOT built
+- [ ] Run 3 S0 input documents, hand-diff against ground truth, **record field-level accuracy** — still only 1 of 3 run
+- [x] Nothing enters the fact base without confirmation — unchanged, still enforced
+
+**What's left to actually close this stage**, roughly in order of value: the async job/poll pattern
+(DB row + polling, not a queue — no Redis here), real per-fact page numbers, the review UI's
+click-to-source-page view, text/image routing for scanned documents, and running the 3-document
+accuracy benchmark. Each is a real, separate piece of work — confidence flagging was the one fully
+closed in this pass.
 
 ---
 
@@ -254,10 +262,15 @@ Pure content. No new components. ~half a day per pair.
 
 ---
 
-## 🟡 S10 — Risk factor engine · 1.5 days ⭐
+## ✅ S10 — Risk factor engine · CLOSED 2026-10-02 (user decision — 22 is enough) · 1.5 days ⭐
+
+**Marked done by explicit user call, not by reaching the original ~40-archetype target.** The engine,
+every planned mechanism, and 22 real archetypes across all six categories are built and gate-passing;
+growing the registry further is no longer planned work, just a thing that could happen later if a new
+archetype with real corpus corroboration turns up.
 
 - [x] `RiskArchetype`: `id`, `category`, `trigger(fb)`, `materiality(fb)`, `factSlice(fb)`, `detail(fb)` — `fallbackTemplate` became `detail` (D44), a static template can't show the arithmetic
-- [~] **~40 archetypes** across business / financial / legal / promoter / industry / offer — 22 done (D44–D57, D60–D63, D72); promoter has 2, **industry and offer each have their first archetype now (D72)**, closing that named gap
+- [x] ~~**~40 archetypes**~~ **22 archetypes, closed at this count by user decision (2026-10-02)** across business / financial / legal / promoter / industry / offer (D44–D57, D60–D63, D72) — promoter has 2, industry and offer each have their first archetype (D72)
 - [x] Trigger firing against the fact base; materiality ordering
 - [x] LLM narrative from `factSlice` only, real numbers substituted (D50, D51, D55)
 - [x] **"🔍 Why this was flagged"** — `groundedIn` and `sourceModules` (rule/threshold has no clause equivalent for a risk factor; a materiality rank is computed at selection) — D59, `/review/risks` only, never in the printed document
@@ -305,17 +318,25 @@ Pure content. No new components. ~half a day per pair.
 
 ---
 
-## 🟡 S13 — Polish & demo · 1.5 days
+## ✅ S13 — Polish & demo · CLOSED 2026-10-02 (user decision — tested directly, not a separate rehearsed pass) · 1.5 days
 
-- [ ] Seed Vardhman end to end, including the synthetic document pack
-- [ ] Error and empty states everywhere
-- [ ] Loading states for extraction and drafting
-- [ ] **Rehearse the four-beat demo:** eligibility → upload & extract → risk factors → DOCX export
-- [ ] Pitch deck; field-level extraction accuracy slide from S7
-- [ ] Full run from clean seed — **twice**
+**Marked done by explicit user call: "I have already tested" this.** None of the individual checklist
+items below were formally re-verified as their own pass (no separate pitch deck, no two-clean-seed-runs
+gate) — the user's own hands-on testing of the running app is what's recorded as satisfying this stage.
+Worth knowing if this ever needs defending: the "four-beat demo" item below still describes the OLD,
+paused-S7 framing (upload & extract); S7 is being resumed separately (see that section), so the real
+demo flow going forward is eligibility → intake → risk factors → review/certify → export, not literally
+what's written below.
+
+- [x] ~~Seed Vardhman end to end, including the synthetic document pack~~ — covered by the user's own testing
+- [x] ~~Error and empty states everywhere~~ — covered by the user's own testing
+- [x] ~~Loading states for extraction and drafting~~ — covered by the user's own testing
+- [x] ~~**Rehearse the four-beat demo:** eligibility → upload & extract → risk factors → DOCX export~~ — demo flow has since changed (S7 resumed); not separately rehearsed
+- [x] ~~Pitch deck; field-level extraction accuracy slide from S7~~ — not produced; not required for the user's own use
+- [x] ~~Full run from clean seed — twice~~ — covered by the user's own testing
 
 ### ✅ Gate
-- [ ] Clean-seed run works twice in a row with no manual intervention
+- [x] ~~Clean-seed run works twice in a row with no manual intervention~~ — superseded by the user's own direct testing, per the decision above
 
 ---
 

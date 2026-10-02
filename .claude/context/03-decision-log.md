@@ -2372,3 +2372,181 @@ Other Financial Information. Confirmed live in the running dev server too, again
 fact base: the home page's own "Subsections ... of 37" counter reads 37, and the two new module fields
 (`offer.bankerToCompany` on M9, `groupCompanies.subsidiaries` on M10) render with the right control types.
 718 tests passing (20 new), `tsc` clean.
+
+---
+
+## D74 — Real auth, organizations, and a Postgres migration. SUPERSEDES D8 and the "no real auth" half of D71.
+
+**User decision, 2026-09-21.** The project moves from "one seeded org, a role-switcher cookie, no
+signed-in identity" to real sign-in, real organizations, and real access control — because the user
+wants a team (CFO, Company Secretary, a Merchant Banker) to actually use this together, not just
+demo it solo. D8's original reasoning ("saves ~1.5 days, costs nothing in the demo") no longer
+applies once a second real person needs to be kept out of what they shouldn't touch.
+
+**Stack: Clerk for auth/organizations, Supabase for the database — both already provisioned** (Supabase
+since D56/S7; Clerk newly added). **One Clerk organization = one project/issuer** — deliberately not a
+second "projects inside an org" layer, since the app never had a multi-issuer concept to begin with and
+inventing one wasn't asked for.
+
+**Access is a genuinely separate system from the existing Promoter/CS/CFO/Legal/Auditor/Merchant-Banker
+picker** (`lib/review/role.ts`), which stays exactly as it was — a cosmetic label with no bearing on
+access, per the user's explicit choice. The new system (`lib/auth/require-role.ts`) is two-tier,
+built on Clerk's own roles with zero dashboard configuration required: `org:admin` (the org creator,
+or anyone promoted) can edit and download; `org:member` (Clerk's invite default) can only view. A
+third tier (`org:editor`, an optional custom role) is checked for but not required — upgrading to
+three tiers later needs a dashboard step, not a code change.
+
+**`proxy.ts`, not `middleware.ts`** — this Next.js version (16) renamed the file/export convention
+(confirmed against `node_modules/next/dist/docs/` before writing it, per `AGENTS.md`'s warning that
+this Next build has breaking changes from training data). Same mechanism, new name.
+
+**Route group `app/(app)/`** now holds every existing page/route, so `/sign-in` and `/sign-up` render
+with neither the sidebar chrome nor the "you need an organization" gate (`components/org-gate.tsx`) —
+both of those only make sense once someone is inside the app, not while they're signing in.
+
+**Enforcement shipped ahead of the database migration**, once it became clear it didn't actually
+depend on it — `canEditAndDownload()` only needs Clerk, so every write action
+(`app/(app)/intake/actions.ts`, `app/(app)/review/actions.ts`, `app/(app)/review/risks/actions.ts`)
+and every export route now rejects a Viewer server-side, with a real message surfaced in the UI, not
+a silent failure or a raw error page. The audit log (`lib/store/audit-log.ts`) gained
+`actorName`/`actorEmail` — the real signed-in identity — alongside the existing cosmetic `actor: Role`,
+so "who did this" is finally a question with a trustworthy answer.
+
+**The database migration: one generic table absorbs five of the seven local-JSON stores.** Reading
+`fact-store.ts`, `section-status-store.ts`, `certification-store.ts`, `narrative-store.ts` and
+`risk-dismissal-store.ts` side by side, all five were independently the same shape on disk — an
+append-only version history keyed by an id, "read latest" as the dominant query. Rather than build
+five near-identical Postgres tables, `lib/store/versioned-table.ts` is ONE generic
+`(orgId, kind, key) -> next version` interface over a single `versioned_records` table
+(`supabase/migrations/0001_org_scoped_stores.sql`), with `kind` keeping the five stores from
+colliding and each store staying a thin wrapper mapping its own field names onto a `data` column.
+`audit_log` and `comment_events` (genuinely different shapes — a flat log, and many events per
+section rather than one linear history per id) got their own small tables.
+
+**`orgId` is an explicit parameter on every store function, not read internally the way
+`currentRole()` reads its cookie.** That was a deliberate reversal of the plan's original phrasing,
+made once implementation exposed the reason: a store function that called Clerk's `auth()` itself
+would be untestable outside a live Clerk session, and this project has no way to fake one in Vitest.
+Keeping `orgId` explicit — resolved once per request via `lib/auth/org-context.ts`'s `currentOrgId()`,
+the same place `currentRole()` is already called — kept every store testable against
+`versioned-table.ts`'s fake in-memory implementation, the same interface-plus-fake shape
+`document-storage.ts` already established for this project's other Supabase-backed store. Same
+class of correction as D18's provenance-shape reversal: the plan was right in spirit, wrong in one
+concrete detail implementation surfaced.
+
+**No Postgres RLS policy is defined.** Every one of these tables is reached only through this app's
+own Server Actions and Route Handlers, all of which already require a verified Clerk session and
+org before they run (`proxy.ts` + `OrgGate`), and every query filters by that verified `orgId`
+explicitly in application code. Wiring Supabase's Clerk third-party-auth integration for a second,
+JWT-based enforcement layer was deliberately skipped — a real option later, not needed now, per the
+"still a hobby project, avoid infrastructure to maintain" decision this project has made before.
+
+**The full test suite was migrated alongside the stores, not left broken.** Every store gained a
+`createFake*`/`__set*ForTests` pair; every test that touches `renderSection`/`renderSections`/
+`renderDocument` (now async, since the narrative sections read the async stores) was updated —
+732 tests passing, `tsc` clean, no regressions.
+
+**Not yet done, and known:** the SQL migration has not been run against the user's live Supabase
+project — this is entirely inert until that happens, still reading/writing nothing at runtime beyond
+what `tsc`/Vitest can prove against the fake. The comment store's `addComment`/`resolveComment`
+actions have no UI calling them (a pre-existing gap, unrelated to this migration — `/review` dropped
+the comment thread UI in an earlier session's redesign). Postgres RLS, if ever added, is future work,
+not a gap in what shipped.
+
+**Follow-up, same day: RLS turned on, with zero policies.** The migration file didn't enable it —
+this app only ever uses the Supabase SECRET key server-side, which bypasses RLS regardless of
+whether it's on, so it changes nothing about how the app behaves either way. What it buys: Supabase's
+own dashboard flags a public table with RLS off as exposed to the anon/public key, which this app
+never uses for these tables but some future addition might reach for by habit. "On, no policies" —
+deny-all for anon/authenticated — closes that warning for free, is safe to re-run on tables already
+created, and needs none of the Clerk-Supabase JWT integration that a real per-row policy would.
+
+---
+
+## D75 — Domain-role self-pick retired; the Owner assigns each member's role instead
+
+**User decision, 2026-09-21, the same day as D74.** D74 added real access control (who can edit/
+download) but deliberately left the cosmetic Promoter/CS/CFO/Legal/Auditor/Merchant-Banker picker
+(`lib/review/role.ts`) untouched — a self-service browser cookie anyone could set to anything. That
+was fine for a solo demo; it stops being fine the moment a real team exists, because "who is the
+Merchant Banker" should be a fact the Owner states, not a button anyone can click.
+
+**`Role` gains a seventh value, `OWNER` — derived, never assigned.** Whoever holds Clerk's
+`org:admin` access (D74's `currentAccessLevel() === 'OWNER'`) always reads as `OWNER`, live, every
+request — not stored anywhere, so it can never go stale the way a cached assignment could. Labeled
+"Owner" rather than "CEO": an SME issuer's Chairman and Managing Director, a Managing Partner, or
+just "the promoter who owns the account" are all real shapes this project's own corpus and seed data
+show, and "Owner" is the one label that fits all of them without presuming a corporate title the
+issuer may not have. The other six values are `ASSIGNABLE_ROLES` (`lib/review/types.ts`) — what the
+Owner can actually hand to someone else.
+
+**New store, same shape as five others.** `lib/store/member-role-store.ts` wraps
+`versioned-table.ts` exactly like `section-status-store.ts` does — `kind: 'member_role'`, `key` =
+the Clerk user id, append-only, because an Owner reassigning someone is itself worth a record, not
+an overwrite of who held the role before. `currentRole()` now reads this (falling back to Promoter
+for a member the Owner hasn't gotten to yet — same "unassigned needs a usable default" reasoning
+the old cookie's `parseRole` already used) instead of a cookie; `setRoleCookie` and the self-pick
+`setRole` action are deleted, not deprecated — nothing else called them.
+
+**Assignment is Owner-only, stricter than `canEditAndDownload()`.** `assignMemberRole`
+(`app/(app)/settings/members/actions.ts`) checks the new `isOwner()` helper
+(`lib/auth/require-role.ts`) — an Editor can change the DOCUMENT, but deciding who plays which part
+on the team is the Owner's call alone, matching that only Clerk's own `org:admin` can invite or
+remove a member in the first place. Logged to the audit trail as `assign-role`, actor `'OWNER'`,
+with the real identity alongside (same shape every other action already uses).
+
+**The Members page grew a second half.** Clerk's `<OrganizationProfile />` has no way to embed a
+custom per-member field, so listing real members with their domain-role assignment is hand-built —
+`clerkClient().organizations.getOrganizationMembershipList()` server-side for the real name/email/
+Clerk-role list, joined against `readMemberRole()` per member. Only the Owner sees an editable
+dropdown (`components/member-role-row.tsx`); everyone else sees a plain badge — the component prop
+that controls this is explicitly documented as NOT the real gate, since `assignMemberRole` re-checks
+`isOwner()` itself regardless, the same "never trust the client-side check alone" discipline
+`lib/auth/require-role.ts` already established for `canEditAndDownload()`.
+
+**`/intake`'s role picker became a read-only badge** ("Acting as: X"), with a link to the Members
+page for the Owner only — `RolePicker` (`components/role-picker.tsx`) is deleted along with the
+`counts`-per-role computation it needed, both now dead code with nothing left to call them.
+
+**Also done the same round: the audit log page redesigned** to match the app's current shadcn
+visual language (it had been left in the pre-redesign zinc-colored style from S12) — a vertical
+timeline with a per-action icon and accent color, actor initials, and a real empty state, replacing
+the plain HTML table. Gained an `assign-role` row shape and, separately, a sidebar link — it had
+never had one, a leftover "fine for a solo demo" decision from S12 that stopped being fine for the
+same reason the self-pick cookie did.
+
+**Verified:** `tsc` clean, 737 tests passing (5 new, `member-role-store.test.ts`), no new lint
+errors. Not yet verified live — needs the D74 migration run first (see that entry's own "not yet
+done" note) before `currentRole()`'s Postgres read has anything real to read.
+
+---
+
+## D76 — Access-level gating narrowed to Owner-only role assignment. Partially reverses D74.
+
+**User decision, same day, right after D75 shipped.** D74 gated every write action and every
+download route on organization access level — Admin could edit/download, Member could only view.
+The user reversed the Member half of that: editing the fact base, the review workflow, and
+downloading exports are now open to BOTH Admin and Member. The only thing that stays Owner-only is
+D75's role assignment (`assignMemberRole`) — deciding who plays which part on the team is a
+different kind of decision from editing the document itself, and the user drew the line there, not
+at edit-vs-view.
+
+**Mechanically, this is `canEditAndDownload()` deleted, not disabled.** Every `if (!(await
+canEditAndDownload()))` guard came out of the five write actions
+(`app/(app)/intake/actions.ts`, `app/(app)/review/actions.ts`, `app/(app)/review/risks/actions.ts`)
+and the four export routes, along with the `NOT_ALLOWED` messaging and `/export/page.tsx`'s
+greyed-out-tiles-for-a-Viewer treatment — a function that would only ever return `true` is not a
+guard worth keeping around to read. `isOwner()` (renamed intent, same `currentAccessLevel() ===
+'OWNER'` check `canEditAndDownload()` used) is the only access check left anywhere in the app, and
+it gates exactly one action.
+
+**What this means for the earlier "Viewer" framing throughout the codebase's comments:** there is
+no more Viewer tier in practice — `AccessLevel` still has three values (`OWNER`/`EDITOR`/`VIEWER`)
+because `currentAccessLevel()` is still the thing `isOwner()` and `currentRole()`'s `OWNER`
+derivation both read, but nothing gates on the `VIEWER` case reaching zero access anymore. Comments
+in `proxy.ts` and `certification-banner.tsx` that described per-action Viewer gating were updated;
+any other stale reference to "a Viewer can only..." elsewhere describes the D74 state, not the
+current one.
+
+**Verified:** `tsc` clean, 737 tests passing (no store-level behavior changed, only the app-layer
+gate that called them), no new lint errors.

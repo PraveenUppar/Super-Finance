@@ -52,7 +52,7 @@ export const objectsOfTheIssue: SectionSpec = {
   order: 2100,
   group: 'SECTION - PARTICULARS OF THE OFFER',
   clause: 'ICDR Schedule VI Part A',
-  compute: ({ facts }: RenderContext): DocumentNode[] => {
+  compute: async ({ orgId, facts }: RenderContext): Promise<DocumentNode[]> => {
     const nodes: DocumentNode[] = [h2('Objects of the Issue')];
     const objects = facts.offer.objects;
 
@@ -62,7 +62,7 @@ export const objectsOfTheIssue: SectionSpec = {
     }
 
     const slice = objectsFactSlice(facts);
-    const drafted = readNarrative(objectsOfTheIssue.id, slice);
+    const drafted = await readNarrative(orgId, objectsOfTheIssue.id, slice);
     nodes.push(
       para(
         drafted?.text ??

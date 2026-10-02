@@ -1,9 +1,9 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { assemble } from './bundle';
 import { certify } from '../store/certification-store';
+import { createFakeVersionedTable, __setVersionedTableForTests } from '../store/versioned-table';
+
+const ORG = 'org_test1';
 
 /**
  * S12: `assemble()` is the one place every export route reads `certified`
@@ -14,24 +14,20 @@ import { certify } from '../store/certification-store';
  * reaches `renderDocx`.
  */
 describe('assemble()', () => {
-  let dir: string;
-
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'setu-bundle-'));
-    process.env.SETU_DATA_DIR = dir;
+    __setVersionedTableForTests(createFakeVersionedTable());
   });
 
   afterEach(() => {
-    delete process.env.SETU_DATA_DIR;
-    rmSync(dir, { recursive: true, force: true });
+    __setVersionedTableForTests(null);
   });
 
-  it('is not certified by default', () => {
-    expect(assemble().certified).toBe(false);
+  it('is not certified by default', async () => {
+    expect((await assemble(ORG)).certified).toBe(false);
   });
 
-  it('reflects a real certification', () => {
-    certify('MERCHANT_BANKER');
-    expect(assemble().certified).toBe(true);
+  it('reflects a real certification', async () => {
+    await certify(ORG, 'MERCHANT_BANKER');
+    expect((await assemble(ORG)).certified).toBe(true);
   });
 });

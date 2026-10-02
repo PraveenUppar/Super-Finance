@@ -59,7 +59,7 @@ export const basisForIssuePrice: SectionSpec = {
   order: 2200,
   group: 'SECTION - PARTICULARS OF THE OFFER',
   clause: 'ICDR Schedule VI Part A, item 11',
-  compute: ({ facts }: RenderContext): DocumentNode[] => {
+  compute: async ({ orgId, facts }: RenderContext): Promise<DocumentNode[]> => {
     const nodes: DocumentNode[] = [h2('Basis for Issue Price')];
 
     const ratios = otherFinancialInformation(facts);
@@ -78,7 +78,7 @@ export const basisForIssuePrice: SectionSpec = {
     }
 
     const slice = basisFactSlice(facts);
-    const drafted = readNarrative(basisForIssuePrice.id, slice);
+    const drafted = await readNarrative(orgId, basisForIssuePrice.id, slice);
     // D68 — S9 register-and-structure audit: Om Galaxy and Photonics Watertech both open this
     // section with "on the basis of an assessment of market demand ... through the Book Building
     // Process AND on the basis of the qualitative and quantitative factors" — the fallback was

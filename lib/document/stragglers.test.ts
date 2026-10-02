@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, beforeAll } from 'vitest';
 import type { FactBase } from '../facts/schema';
 import { withAnswers } from '../seed/empty';
 import { vardhman } from '../seed/vardhman';
@@ -9,8 +9,9 @@ import { otherFinancial } from './sections/other-financial';
 
 /** Other Financial Information (#24) and Material Contracts (#36). */
 
+const ORG = 'org_test1';
 const sparse = withAnswers({ company: { name: 'Sparse Test Limited' } });
-const render = (spec: typeof otherFinancial, facts: FactBase = vardhman) => renderSection(spec, { facts });
+const render = (spec: typeof otherFinancial, facts: FactBase = vardhman) => renderSection(spec, { orgId: ORG, facts });
 const textOf = (nodes: DocumentNode[]) =>
   nodes
     .map((n) => {
@@ -24,8 +25,13 @@ const textOf = (nodes: DocumentNode[]) =>
 const gapsOf = (nodes: DocumentNode[]) => collectPlaceholders(nodes).map((p) => p.factPath);
 
 describe('Other Financial Information', () => {
-  const nodes = render(otherFinancial);
-  const text = textOf(nodes);
+  let nodes: DocumentNode[];
+  let text: string;
+
+  beforeAll(async () => {
+    nodes = await render(otherFinancial);
+    text = textOf(nodes);
+  });
 
   it('tabulates the five ratios across the three years with the formulas beneath', () => {
     expect(text).toContain('Basic and diluted earnings per Equity Share (Rs) (1) | 3.00 | 2.13 | 0.92');
@@ -46,16 +52,21 @@ describe('Other Financial Information', () => {
     expect(text).toContain('available on our website at https://www.vardhmanprecision.in');
   });
 
-  it('asks for the allotment history when there is nothing to weight', () => {
+  it('asks for the allotment history when there is nothing to weight', async () => {
     const noAllotments: FactBase = { ...vardhman, capital: { ...vardhman.capital, allotments: [] } };
-    expect(gapsOf(render(otherFinancial, noAllotments))).toEqual(['capital.allotments']);
-    expect(gapsOf(render(otherFinancial, sparse))).toContain('financials.years');
+    expect(gapsOf(await render(otherFinancial, noAllotments))).toEqual(['capital.allotments']);
+    expect(gapsOf(await render(otherFinancial, sparse))).toContain('financials.years');
   });
 });
 
 describe('Material Contracts and Documents for Inspection', () => {
-  const nodes = render(materialContracts);
-  const text = textOf(nodes);
+  let nodes: DocumentNode[];
+  let text: string;
+
+  beforeAll(async () => {
+    nodes = await render(materialContracts);
+    text = textOf(nodes);
+  });
 
   it('lists the contracts with their dates and parties, and the unsigned ones as gaps', () => {
     expect(text).toContain('Issue Agreement dated July 2, 2026 between our Company and the Book Running Lead Manager (Indorient Financial Services Limited).');
@@ -78,7 +89,7 @@ describe('Material Contracts and Documents for Inspection', () => {
     expect(text).toContain('Copies of the audited financial statements and annual reports of our Company for the Fiscals 2026, 2025, 2024.');
   });
 
-  it("waits for the auditor's deliverables where the restatement is not yet delivered", () => {
+  it("waits for the auditor's deliverables where the restatement is not yet delivered", async () => {
     // Vardhman has no restated statements yet: the examination report and the
     // tax benefits statement are gaps on that fact, not on their own dates
     expect(gapsOf(nodes)).toContain('financials.hasRestatedStatements');
@@ -89,19 +100,20 @@ describe('Material Contracts and Documents for Inspection', () => {
       financials: { ...vardhman.financials, hasRestatedStatements: true },
       offer: { ...vardhman.offer, auditorExaminationReportDate: '2026-10-20', taxBenefitsStatementDate: '2026-10-22' },
     };
-    const t = textOf(render(materialContracts, restated));
+    const t = textOf(await render(materialContracts, restated));
     expect(t).toContain('The examination report dated October 20, 2026 of Kalyani & Associates, Chartered Accountants on the Restated Financial Information');
     expect(t).toContain('The statement of special tax benefits dated October 22, 2026 from Kalyani & Associates');
   });
 
-  it('leaves out the monitoring agency agreement where there is no monitoring agency', () => {
+  it('leaves out the monitoring agency agreement where there is no monitoring agency', async () => {
     const none: FactBase = { ...vardhman, offer: { ...vardhman.offer, monitoringAgency: undefined } };
-    expect(textOf(render(materialContracts, none))).not.toContain('Monitoring Agency Agreement');
+    expect(textOf(await render(materialContracts, none))).not.toContain('Monitoring Agency Agreement');
   });
 
-  it('renders a one-fact issuer as gaps, without seed text', () => {
-    const t = textOf(render(materialContracts, sparse));
-    expect(gapsOf(render(materialContracts, sparse)).length).toBeGreaterThan(8);
+  it('renders a one-fact issuer as gaps, without seed text', async () => {
+    const rendered = await render(materialContracts, sparse);
+    const t = textOf(rendered);
+    expect(gapsOf(rendered).length).toBeGreaterThan(8);
     expect(t).not.toContain('Vardhman');
     expect(t).not.toContain('undefined');
   });

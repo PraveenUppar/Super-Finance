@@ -1,32 +1,30 @@
-import { mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
 import { getFact, setFact, userProvenance, type FactPath, type Provenance, type ProvenanceMap } from '../facts/provenance';
 import type { PartialFactBase } from '../facts/schema';
+import { versionedTable } from './versioned-table';
 
 /**
- * The fact base on disk.
+ * The fact base — now one organization's row history in `versioned_records`
+ * (kind `'fact_base'`, key `'_singleton'`: one document per organization),
+ * not a local JSON file. This is the swap `fact-store.ts`'s own original
+ * comment anticipated: "the shape is chosen so that swap is a change of
+ * driver, not of callers" — every function here keeps its old name and
+ * meaning, only gaining an `orgId` parameter and an `async` keyword.
  *
- * Local JSON until S7 brings Supabase in with uploads. The shape is chosen so
- * that swap is a change of driver, not of callers: everything goes through
- * `readFactBase` and `writeFacts`.
+ * **APPEND-ONLY**, same as before. Every write is a new version; nothing is
+ * ever overwritten, because "who changed this figure, and when" is a
+ * question a merchant banker will ask about a document that carries their
+ * signature — and because an offer document is evidence.
  *
- * **APPEND-ONLY.** Every write lands as a new numbered version alongside the
- * previous ones, and `current.json` is a pointer to the latest. Nothing is
- * ever overwritten, because "who changed this figure, and when" is a question
- * a merchant banker will ask about a document that carries their signature —
- * and because an offer document is evidence.
+ * `orgId` is always the caller's job to supply, resolved from Clerk's
+ * `auth()` exactly once per request (see `lib/auth/org-context.ts`) — kept
+ * as an explicit parameter here, rather than read internally the way
+ * `currentRole()` reads its cookie, specifically so this file (and the
+ * chain above it: `lib/issuer.ts`, `lib/export/bundle.ts`) stays testable
+ * with `lib/store/versioned-table.ts`'s fake, with no Clerk session needed.
  */
 
-/**
- * Paths are resolved per call, not at import.
- *
- * Reading the env var once at module load makes the store impossible to point
- * at a temporary directory from a test without module-cache surgery — and a
- * store nobody can test is a store nobody should trust with the fact base.
- */
-const root = () => process.env.SETU_DATA_DIR ?? '.data';
-const versionsDir = () => join(root(), 'versions');
-const currentFile = () => join(root(), 'current.json');
+const KIND = 'fact_base';
+const KEY = '_singleton';
 
 export interface FactBaseVersion {
   version: number;
@@ -38,8 +36,10 @@ export interface FactBaseVersion {
   provenance: ProvenanceMap;
 }
 
-function ensure() {
-  mkdirSync(versionsDir(), { recursive: true });
+interface StoredData {
+  changed: FactPath[];
+  facts: PartialFactBase;
+  provenance: ProvenanceMap;
 }
 
 /** The empty starting point. An issuer begins with nothing, not with defaults. */
@@ -52,30 +52,22 @@ const EMPTY: FactBaseVersion = {
   provenance: {},
 };
 
-export function readFactBase(): FactBaseVersion {
-  ensure();
-  if (!existsSync(currentFile())) return EMPTY;
-  try {
-    return JSON.parse(readFileSync(currentFile(), 'utf8')) as FactBaseVersion;
-  } catch {
-    // A corrupt pointer must not lose the history. Fall back to the highest
-    // numbered version on disk rather than starting empty.
-    const versions = listVersions();
-    if (versions.length === 0) return EMPTY;
-    return readVersion(versions[versions.length - 1]);
-  }
+export async function readFactBase(orgId: string): Promise<FactBaseVersion> {
+  const row = await versionedTable().readLatest(orgId, KIND, KEY);
+  if (!row) return EMPTY;
+  const data = row.data as StoredData;
+  return { version: row.version, savedAt: row.savedAt, savedBy: row.savedBy, ...data };
 }
 
-export function listVersions(): number[] {
-  ensure();
-  return readdirSync(versionsDir())
-    .filter((f) => /^\d+\.json$/.test(f))
-    .map((f) => Number(f.replace('.json', '')))
-    .sort((a, b) => a - b);
+export async function listVersions(orgId: string): Promise<number[]> {
+  return versionedTable().listVersions(orgId, KIND, KEY);
 }
 
-export function readVersion(version: number): FactBaseVersion {
-  return JSON.parse(readFileSync(join(versionsDir(), `${version}.json`), 'utf8')) as FactBaseVersion;
+export async function readVersion(orgId: string, version: number): Promise<FactBaseVersion> {
+  const row = await versionedTable().readVersion(orgId, KIND, KEY, version);
+  if (!row) throw new Error(`fact_base: no version ${version} for org ${orgId}`);
+  const data = row.data as StoredData;
+  return { version: row.version, savedAt: row.savedAt, savedBy: row.savedBy, ...data };
 }
 
 /**
@@ -93,13 +85,13 @@ export function readVersion(version: number): FactBaseVersion {
  * against the source page. Passing the override IN, rather than adding a
  * second write function, keeps one place that appends a version.
  */
-export function writeFacts(
+export async function writeFacts(
+  orgId: string,
   updates: Record<FactPath, unknown>,
   savedBy: string,
   provenanceFor: (path: FactPath) => Provenance = () => userProvenance(savedBy),
-): FactBaseVersion {
-  ensure();
-  const previous = readFactBase();
+): Promise<FactBaseVersion> {
+  const previous = await readFactBase(orgId);
 
   const changed = Object.entries(updates).filter(
     ([path, value]) => JSON.stringify(getFact(previous.facts, path)) !== JSON.stringify(value),
@@ -113,27 +105,16 @@ export function writeFacts(
     provenance[path] = provenanceFor(path);
   }
 
-  const next: FactBaseVersion = {
-    version: previous.version + 1,
-    savedAt: new Date().toISOString(),
-    savedBy,
-    changed: changed.map(([path]) => path),
-    facts,
-    provenance,
-  };
-
-  // Version first, pointer second. If the process dies between the two, the
-  // history is intact and the pointer recovers on the next read.
-  writeFileSync(join(versionsDir(), `${next.version}.json`), JSON.stringify(next, null, 2));
-  writeFileSync(currentFile(), JSON.stringify(next, null, 2));
-  return next;
+  const data: StoredData = { changed: changed.map(([path]) => path), facts, provenance };
+  const row = await versionedTable().write(orgId, KIND, KEY, data, savedBy);
+  return { version: row.version, savedAt: row.savedAt, savedBy: row.savedBy, ...data };
 }
 
 /** Seed an empty store, so the demo has something to show. Never overwrites. */
-export function seedIfEmpty(facts: PartialFactBase, by = 'seed'): FactBaseVersion {
-  const current = readFactBase();
+export async function seedIfEmpty(orgId: string, facts: PartialFactBase, by = 'seed'): Promise<FactBaseVersion> {
+  const current = await readFactBase(orgId);
   if (current.version > 0) return current;
-  return writeFacts(flatten(facts), by);
+  return writeFacts(orgId, flatten(facts), by);
 }
 
 /**
@@ -143,8 +124,8 @@ export function seedIfEmpty(facts: PartialFactBase, by = 'seed'): FactBaseVersio
  * check the current version first. Still append-only: this is a normal
  * write, so every version already on disk survives underneath it.
  */
-export function loadWholeFactBase(facts: PartialFactBase, by: string): FactBaseVersion {
-  return writeFacts(flatten(facts), by);
+export async function loadWholeFactBase(orgId: string, facts: PartialFactBase, by: string): Promise<FactBaseVersion> {
+  return writeFacts(orgId, flatten(facts), by);
 }
 
 /**
@@ -156,23 +137,13 @@ export function loadWholeFactBase(facts: PartialFactBase, by: string): FactBaseV
  * what is already stored, never clears a path), so this builds the empty
  * version the same way `writeFacts` builds a normal one.
  */
-export function resetFactBase(by: string): FactBaseVersion {
-  ensure();
-  const previous = readFactBase();
+export async function resetFactBase(orgId: string, by: string): Promise<FactBaseVersion> {
+  const previous = await readFactBase(orgId);
   if (previous.version === 0) return previous;
 
-  const next: FactBaseVersion = {
-    version: previous.version + 1,
-    savedAt: new Date().toISOString(),
-    savedBy: by,
-    changed: Object.keys(previous.facts),
-    facts: {},
-    provenance: {},
-  };
-
-  writeFileSync(join(versionsDir(), `${next.version}.json`), JSON.stringify(next, null, 2));
-  writeFileSync(currentFile(), JSON.stringify(next, null, 2));
-  return next;
+  const data: StoredData = { changed: Object.keys(previous.facts), facts: {}, provenance: {} };
+  const row = await versionedTable().write(orgId, KIND, KEY, data, by);
+  return { version: row.version, savedAt: row.savedAt, savedBy: row.savedBy, ...data };
 }
 
 /**

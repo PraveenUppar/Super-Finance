@@ -12,6 +12,8 @@ import type { FactBase } from '../../facts/schema';
  * the SME-majority case (four of the five ToC-mapped corpus documents).
  */
 
+const ORG = 'org_test1';
+
 const textOf = (nodes: DocumentNode[]) =>
   nodes
     .map((n) => {
@@ -29,14 +31,14 @@ const variant = (mutate: (f: FactBase) => void): FactBase => {
 };
 
 describe('Our Subsidiaries, Associates and Joint Ventures', () => {
-  it('states plainly that Vardhman has none, gap-free', () => {
-    const nodes = renderSection(subsidiaries, { facts: vardhman });
+  it('states plainly that Vardhman has none, gap-free', async () => {
+    const nodes = await renderSection(subsidiaries, { orgId: ORG, facts: vardhman });
     const text = textOf(nodes);
     expect(text).toContain('does not have any subsidiaries, associates or joint ventures');
     expect(collectPlaceholders(nodes)).toHaveLength(0);
   });
 
-  it('renders a real table when the issuer has one', () => {
+  it('renders a real table when the issuer has one', async () => {
     const f = variant((x) => {
       x.groupCompanies.subsidiaries = [
         {
@@ -48,7 +50,7 @@ describe('Our Subsidiaries, Associates and Joint Ventures', () => {
         },
       ];
     });
-    const nodes = renderSection(subsidiaries, { facts: f });
+    const nodes = await renderSection(subsidiaries, { orgId: ORG, facts: f });
     const text = textOf(nodes);
     expect(text).toContain('Vardhman Precision Exports Private Limited');
     expect(text).toContain('Subsidiary');
@@ -56,13 +58,13 @@ describe('Our Subsidiaries, Associates and Joint Ventures', () => {
     expect(collectPlaceholders(nodes)).toHaveLength(0);
   });
 
-  it('raises a gap per missing field, not a silently blank cell', () => {
+  it('raises a gap per missing field, not a silently blank cell', async () => {
     const f = variant((x) => {
       x.groupCompanies.subsidiaries = [
         { name: 'Some Associate Limited', relationship: 'ASSOCIATE' },
       ];
     });
-    const nodes = renderSection(subsidiaries, { facts: f });
+    const nodes = await renderSection(subsidiaries, { orgId: ORG, facts: f });
     const text = textOf(nodes);
     expect(text).toContain('[TO BE PROVIDED]');
     const gaps = collectPlaceholders(nodes);
@@ -70,7 +72,10 @@ describe('Our Subsidiaries, Associates and Joint Ventures', () => {
     expect(gaps.every((g) => g.factPath === 'groupCompanies.subsidiaries')).toBe(true);
   });
 
-  it('never crashes for a one-fact issuer', () => {
-    expect(() => renderSection(subsidiaries, { facts: { ...vardhman, groupCompanies: { ...vardhman.groupCompanies, subsidiaries: [] } } })).not.toThrow();
+  it('never crashes for a one-fact issuer', async () => {
+    await renderSection(subsidiaries, {
+      orgId: ORG,
+      facts: { ...vardhman, groupCompanies: { ...vardhman.groupCompanies, subsidiaries: [] } },
+    });
   });
 });

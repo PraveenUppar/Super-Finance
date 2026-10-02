@@ -9,17 +9,27 @@
  */
 
 /**
- * Who is "acting" right now. No real auth (D8's posture, extended here) — a
- * cookie remembers a choice, not a signed-in identity. `MERCHANT_BANKER` is
- * the only one with no module `assignableTo` default (see
- * `lib/modules/types.ts`'s `Assignee`): the MB reviews and certifies, never
- * fills a module.
+ * Who is "acting" right now — cosmetic, unrelated to access (see the
+ * decision-log entry superseding D8/D71: `lib/auth/require-role.ts` is the
+ * real access-control system now).
+ *
+ * `OWNER` is never assigned by anyone — it's derived automatically for
+ * whoever holds Clerk's `org:admin` role (`currentRole()`,
+ * `lib/review/role.ts`), the same person `lib/auth/require-role.ts` calls
+ * access-level `OWNER`. The other six are assigned, one per member, by that
+ * Owner (`ASSIGNABLE_ROLES` below) — `MERCHANT_BANKER` is the only one with
+ * no module `assignableTo` default (see `lib/modules/types.ts`'s
+ * `Assignee`): the MB reviews and certifies, never fills a module.
  */
-export type Role = 'PROMOTER' | 'CS' | 'CFO' | 'LEGAL' | 'AUDITOR' | 'MERCHANT_BANKER';
+export type Role = 'OWNER' | 'PROMOTER' | 'CS' | 'CFO' | 'LEGAL' | 'AUDITOR' | 'MERCHANT_BANKER';
 
-export const ROLES: Role[] = ['PROMOTER', 'CS', 'CFO', 'LEGAL', 'AUDITOR', 'MERCHANT_BANKER'];
+export const ROLES: Role[] = ['OWNER', 'PROMOTER', 'CS', 'CFO', 'LEGAL', 'AUDITOR', 'MERCHANT_BANKER'];
+
+/** The roles an Owner can hand to a member — everything except `OWNER` itself, which is never assigned. */
+export const ASSIGNABLE_ROLES: Role[] = ROLES.filter((r) => r !== 'OWNER');
 
 export const ROLE_LABELS: Record<Role, string> = {
+  OWNER: 'Owner',
   PROMOTER: 'Promoter',
   CS: 'Company Secretary',
   CFO: 'Chief Financial Officer',
@@ -28,9 +38,9 @@ export const ROLE_LABELS: Record<Role, string> = {
   MERCHANT_BANKER: 'Merchant Banker',
 };
 
-/** Unknown or missing input defaults to Promoter — the coordinator, and the role a first-time visitor is. */
+/** Unknown, missing, or unassigned input defaults to Promoter — the coordinator, and the role a not-yet-assigned member shows as. */
 export function parseRole(raw: string | undefined | null): Role {
-  return (ROLES as string[]).includes(raw ?? '') ? (raw as Role) : 'PROMOTER';
+  return (ASSIGNABLE_ROLES as string[]).includes(raw ?? '') ? (raw as Role) : 'PROMOTER';
 }
 
 /**

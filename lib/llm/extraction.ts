@@ -32,3 +32,43 @@ export async function extractFacts<T = unknown>(
   const prompt = `Extract facts for the "${req.domain}" section of the fact base from the following document pages:\n\n${req.pageText}`;
   return client.generateStructured<T>({ systemInstruction: NO_INVENTION_EXTRACTION_PROMPT, prompt, schema });
 }
+
+function normalize(s: string): string {
+  return s.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+/** Every primitive leaf inside an extracted value, however nested. */
+function leafValues(value: unknown): string[] {
+  if (value === null || value === undefined || value === '') return [];
+  if (typeof value === 'string') return [value];
+  if (typeof value === 'number') return [String(value)];
+  if (typeof value === 'boolean') return [];
+  if (Array.isArray(value)) return value.flatMap(leafValues);
+  if (typeof value === 'object') return Object.values(value as Record<string, unknown>).flatMap(leafValues);
+  return [];
+}
+
+/**
+ * Confidence flagging — mechanical, never self-reported by the model.
+ *
+ * The same lesson D18 established for provenance generally (asking the model
+ * to report its own confidence invites exactly the fabrication the field
+ * exists to catch) applies here: this checks, after the fact, how much of a
+ * field's own value can be found close to verbatim in the page text it was
+ * extracted from — the identical discipline as `narrative.ts`'s
+ * `untraceableNumbers()`, generalised from "every number" to "every leaf
+ * value" since an extracted field can be a name or an address, not only a
+ * figure. 1 = every leaf found in the source text; 0 = none were. A field
+ * with no checkable leaves (e.g. a bare boolean) reads as 1 — there is
+ * nothing for this check to catch a fabrication of.
+ */
+export function fieldConfidence(value: unknown, sourceText: string): number {
+  const leaves = leafValues(value);
+  if (leaves.length === 0) return 1;
+  const haystack = normalize(sourceText);
+  const found = leaves.filter((leaf) => {
+    const needle = normalize(leaf);
+    return needle.length > 0 && haystack.includes(needle);
+  }).length;
+  return found / leaves.length;
+}

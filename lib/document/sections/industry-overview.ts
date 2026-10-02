@@ -72,7 +72,7 @@ export const industryOverview: SectionSpec = {
   order: 2300,
   group: 'SECTION - ABOUT THE COMPANY',
   clause: 'ICDR Schedule VI Part A',
-  compute: ({ facts }: RenderContext): DocumentNode[] => {
+  compute: async ({ orgId, facts }: RenderContext): Promise<DocumentNode[]> => {
     const nodes: DocumentNode[] = [
       h2('Industry Overview'),
       {
@@ -94,7 +94,7 @@ export const industryOverview: SectionSpec = {
     ];
 
     const slice = industryFactSlice(facts);
-    const drafted = readNarrative(industryOverview.id, slice);
+    const drafted = await readNarrative(orgId, industryOverview.id, slice);
     nodes.push(
       para(
         drafted?.text ??

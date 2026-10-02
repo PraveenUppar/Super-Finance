@@ -1,25 +1,18 @@
-import { mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
 import type { Role, SectionStatus } from '../review/types';
+import { versionedTable } from './versioned-table';
 
 /**
  * Section review status — Draft -> Ready for Review -> Reviewed -> Locked.
  *
- * Same append-only, versioned-per-id shape as `risk-dismissal-store.ts`: a
- * section moving backward (a reviewer reopening a "Reviewed" section to
- * Draft after a fact changed under it) is itself a real, logged event, not
- * an overwrite of the fact that it was once marked Reviewed.
+ * Now `versioned_records` (kind `'section_status'`, key = the section id) —
+ * see `lib/store/versioned-table.ts`'s doc comment. Still append-only,
+ * versioned per section: a section moving backward (a reviewer reopening a
+ * "Reviewed" section to Draft after a fact changed under it) is itself a
+ * real, logged event, not an overwrite of the fact that it was once marked
+ * Reviewed.
  */
 
-const root = () => process.env.SETU_DATA_DIR ?? '.data';
-const statusesRoot = () => join(root(), 'section-status');
-
-function safeId(id: string): string {
-  return id.replace(/[^a-zA-Z0-9_.-]/g, '_');
-}
-const idDir = (id: string) => join(statusesRoot(), safeId(id));
-const versionsDir = (id: string) => join(idDir(id), 'versions');
-const currentFile = (id: string) => join(idDir(id), 'current.json');
+const KIND = 'section_status';
 
 export interface SectionStatusRecord {
   sectionId: string;
@@ -29,45 +22,41 @@ export interface SectionStatusRecord {
   changedAt: string;
 }
 
-function ensure(id: string) {
-  mkdirSync(versionsDir(id), { recursive: true });
-}
-
 /** Every section defaults to Draft until someone touches it — no record is not a gap, it's the starting state. */
-export function readStatus(sectionId: string): SectionStatusRecord {
-  ensure(sectionId);
-  if (!existsSync(currentFile(sectionId))) {
-    return { sectionId, version: 0, status: 'DRAFT', changedBy: 'PROMOTER', changedAt: '' };
-  }
-  return JSON.parse(readFileSync(currentFile(sectionId), 'utf8')) as SectionStatusRecord;
-}
-
-export function listStatusVersions(sectionId: string): number[] {
-  ensure(sectionId);
-  return readdirSync(versionsDir(sectionId))
-    .filter((f) => /^\d+\.json$/.test(f))
-    .map((f) => Number(f.replace('.json', '')))
-    .sort((a, b) => a - b);
-}
-
-export function readStatusVersion(sectionId: string, version: number): SectionStatusRecord {
-  return JSON.parse(readFileSync(join(versionsDir(sectionId), `${version}.json`), 'utf8')) as SectionStatusRecord;
-}
-
-export function writeStatus(sectionId: string, status: SectionStatus, changedBy: Role): SectionStatusRecord {
-  ensure(sectionId);
-  const previousVersions = listStatusVersions(sectionId);
-  const nextVersion = previousVersions.length === 0 ? 1 : previousVersions[previousVersions.length - 1] + 1;
-
-  const next: SectionStatusRecord = {
+export async function readStatus(orgId: string, sectionId: string): Promise<SectionStatusRecord> {
+  const row = await versionedTable().readLatest(orgId, KIND, sectionId);
+  if (!row) return { sectionId, version: 0, status: 'DRAFT', changedBy: 'PROMOTER', changedAt: '' };
+  return {
     sectionId,
-    version: nextVersion,
-    status,
-    changedBy,
-    changedAt: new Date().toISOString(),
+    version: row.version,
+    status: (row.data as { status: SectionStatus }).status,
+    changedBy: row.savedBy as Role,
+    changedAt: row.savedAt,
   };
+}
 
-  writeFileSync(join(versionsDir(sectionId), `${next.version}.json`), JSON.stringify(next, null, 2));
-  writeFileSync(currentFile(sectionId), JSON.stringify(next, null, 2));
-  return next;
+export async function listStatusVersions(orgId: string, sectionId: string): Promise<number[]> {
+  return versionedTable().listVersions(orgId, KIND, sectionId);
+}
+
+export async function readStatusVersion(orgId: string, sectionId: string, version: number): Promise<SectionStatusRecord> {
+  const row = await versionedTable().readVersion(orgId, KIND, sectionId, version);
+  if (!row) throw new Error(`section_status: no version ${version} for section ${sectionId}`);
+  return {
+    sectionId,
+    version: row.version,
+    status: (row.data as { status: SectionStatus }).status,
+    changedBy: row.savedBy as Role,
+    changedAt: row.savedAt,
+  };
+}
+
+export async function writeStatus(
+  orgId: string,
+  sectionId: string,
+  status: SectionStatus,
+  changedBy: Role,
+): Promise<SectionStatusRecord> {
+  const row = await versionedTable().write(orgId, KIND, sectionId, { status }, changedBy);
+  return { sectionId, version: row.version, status, changedBy, changedAt: row.savedAt };
 }

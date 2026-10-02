@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react';
 import { CircleHelp, EyeOff, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { setRiskDismissal } from '@/app/review/risks/actions';
+import { setRiskDismissal } from '@/app/(app)/review/risks/actions';
 import type { RiskCategory } from '@/lib/risk';
 import { formatTimestamp } from '@/lib/review/timestamp';
 

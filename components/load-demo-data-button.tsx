@@ -4,7 +4,7 @@ import { useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { loadDemoData } from '@/app/intake/actions';
+import { loadDemoData } from '@/app/(app)/intake/actions';
 
 /**
  * Fills every module with the Vardhman demo issuer's answers in one click —
@@ -24,7 +24,8 @@ export function LoadDemoDataButton() {
       disabled={pending}
       onClick={() => {
         startTransition(async () => {
-          await loadDemoData();
+          const result = await loadDemoData();
+          if (!result.ok && result.error) window.alert(result.error);
           router.refresh();
         });
       }}

@@ -1,6 +1,6 @@
 import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { renderSections } from '../document/section';
 import { sectionRegistry } from '../document/sections';
 import { userProvenance } from '../facts/provenance';
@@ -10,14 +10,24 @@ import { vardhman } from '../seed/vardhman';
 import { buildVault, type Assembled } from './bundle';
 import { buildGapReport, gapReportFilename, whereToFix } from './gap-report';
 import { docxToPdf, findSoffice, PdfUnavailableError } from './pdf';
+import { createFakeVersionedTable, __setVersionedTableForTests } from '../store/versioned-table';
 
 /**
  * The exports are checked by opening what they produce — the workbook, the
  * zip — not by trusting the builders. What matters is what the banker sees.
  */
 
-function assembled(facts = vardhman, version = 3): Assembled {
-  const sections = renderSections(sectionRegistry, { facts });
+const ORG = 'org_test1';
+
+beforeEach(() => {
+  __setVersionedTableForTests(createFakeVersionedTable());
+});
+afterEach(() => {
+  __setVersionedTableForTests(null);
+});
+
+async function assembled(facts = vardhman, version = 3): Promise<Assembled> {
+  const sections = await renderSections(sectionRegistry, { orgId: ORG, facts });
   const { findings, summary } = assess(facts, sections);
   return {
     facts,
@@ -68,7 +78,7 @@ describe('where to fix', () => {
 
 describe('the gap report workbook', () => {
   it('has the three sheets, with every finding and every placeholder as a row', async () => {
-    const a = assembled();
+    const a = await assembled();
     const wb = await open(await buildGapReport(a));
     expect(wb.worksheets.map((s) => s.name)).toEqual(['Findings', 'Placeholders', 'Provenance']);
 
@@ -81,7 +91,7 @@ describe('the gap report workbook', () => {
   });
 
   it('names the module and question for a gap, not just the path', async () => {
-    const a = assembled();
+    const a = await assembled();
     const wb = await open(await buildGapReport(a));
     const rows = sheetRows(wb.getWorksheet('Placeholders')!);
     const escrow = rows.find((r) => r[2] === 'offer.anchorEscrowAccountResident')!;
@@ -91,17 +101,17 @@ describe('the gap report workbook', () => {
   });
 
   it('lists provenance per fact, and says so when there is none', async () => {
-    const withProv = await open(await buildGapReport(assembled()));
+    const withProv = await open(await buildGapReport(await assembled()));
     const rows = sheetRows(withProv.getWorksheet('Provenance')!);
     expect(rows.find((r) => r[0] === 'capital.faceValue')?.slice(1, 4)).toEqual(['user', 'cs', '2026-09-11T10:00:00.000Z']);
 
-    const none = await open(await buildGapReport({ ...assembled(), provenance: {} }));
+    const none = await open(await buildGapReport({ ...await assembled(), provenance: {} }));
     expect(sheetRows(none.getWorksheet('Provenance')!).some((r) => String(r[0]).startsWith('No provenance on file'))).toBe(true);
   });
 
   it('renders a one-fact issuer with dozens of placeholders and no seed text', async () => {
     const sparse = withAnswers({ company: { name: 'Sparse Test Limited' } });
-    const a = assembled(sparse, 1);
+    const a = await assembled(sparse, 1);
     const wb = await open(await buildGapReport(a));
     const rows = sheetRows(wb.getWorksheet('Placeholders')!);
     expect(rows.length).toBeGreaterThan(50);
@@ -145,7 +155,7 @@ describe('the PDF print', () => {
     'prints the DOCX to a PDF where LibreOffice is installed',
     async () => {
       const { renderDocx } = await import('../document/docx');
-      const docx = await renderDocx(assembled().sections, { facts: vardhman });
+      const docx = await renderDocx((await assembled()).sections, { facts: vardhman });
       const pdf = await docxToPdf(docx, 'test');
       expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
       expect(pdf.byteLength).toBeGreaterThan(50_000);
@@ -158,7 +168,7 @@ describe('the vault', () => {
   it('holds the document, the report, the facts, the provenance and a manifest that agrees with them', async () => {
     process.env.SETU_SOFFICE = 'C:\\definitely\\not\\here\\soffice.exe';
     try {
-      const a = assembled();
+      const a = await assembled();
       const { zip, filename, pdfOmitted } = await buildVault(a);
       expect(filename).toBe('vardhman-precision-components-limited-vault-v3.zip');
       expect(pdfOmitted).toContain('LibreOffice');

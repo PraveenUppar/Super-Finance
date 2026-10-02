@@ -28,14 +28,14 @@ describe.each([
     expect(plannedSections[spec.id]).toBeUndefined();
   });
 
-  it('states both the reason and who supplies it', () => {
-    const text = textOf(renderSection(spec, { facts: vardhman }));
+  it('states both the reason and who supplies it', async () => {
+    const text = textOf(await renderSection(spec, { orgId: 'org_test1', facts: vardhman }));
     expect(text).toContain(spec.title);
     expect(text).toMatch(expectedNote);
   });
 
-  it('raises a real gap, not a silent absence', () => {
-    const gaps = collectPlaceholders(renderSection(spec, { facts: vardhman }));
+  it('raises a real gap, not a silent absence', async () => {
+    const gaps = collectPlaceholders(await renderSection(spec, { orgId: 'org_test1', facts: vardhman }));
     expect(gaps).toHaveLength(1);
     expect(gaps[0].factPath).toBe(spec.id);
   });

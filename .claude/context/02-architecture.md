@@ -231,9 +231,9 @@ One harness, six prompt specs. Constraints:
 
 ## Review workflow
 
-Roles (no real auth — a switcher over one seeded org): Promoter · CFO/CS · Merchant Banker · Auditor · Legal.
+Domain roles, still cosmetic (D74 kept this unchanged): Promoter · CFO/CS · Merchant Banker · Auditor · Legal — a picker with no bearing on access, `lib/review/role.ts`. Real access control is a separate system now (D74, supersedes D8): Clerk sign-in, one organization per project, `org:admin` (edit/download) vs `org:member` (view only) — `lib/auth/require-role.ts`.
 
-Section status: `Draft → Ready for Review → Reviewed → Locked`. Section-anchored comment threads. Append-only audit log.
+Section status: `Draft → Ready for Review → Reviewed → Locked`. Section-anchored comment threads. Append-only audit log, now carrying the real signed-in identity alongside the cosmetic role.
 
 **Exports carry `UNSIGNED DRAFT — NOT FOR FILING` in the running header until MB certification** (D35 — a notice on every page, not a page watermark). Required by the problem statement, and the honest answer to "aren't you replacing bankers?"
 
