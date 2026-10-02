@@ -1,52 +1,39 @@
 # Setu
 
-**SME IPO Draft Prospectus Builder.** Built as a real product attempt that ended up touching most of the
-backend topics worth practicing: schema-driven validation, a rule-engine/expert-system design, grounded LLM
-generation with mechanical fact-checking, multi-tenant auth, an append-only relational data model, audit
-logging, and multi-format document export (Word, PDF, Excel).
-
-Takes an SME issuer from a blank intake form to a structurally complete, citation-backed **draft SEBI
+**SME IPO Draft Prospectus Builder.** Takes an SME issuer from a blank intake form to a structurally complete, citation-backed **draft SEBI
 prospectus**, flags every gap and inconsistency with the exact regulatory clause it violates, and hands the
-result to a merchant banker to review and certify. It does not replace the merchant banker, the auditor or
+result to a merchant banker to review and certify.
+
+It does not replace the merchant banker, the auditor or
 legal counsel — it replaces the months of due-diligence-questionnaire-by-email that happen before any of them
 start certifying anything.
 
-Live demo: https://setu-mu-three.vercel.app/ — note: the deployed build reflects the last pushed commit and
-does **not** yet include the Clerk/Postgres migration described below, which is real, working code that has
-not been pushed yet.
+Live demo: https://setu-mu-three.vercel.app/
 
 ## Tech stack
 
-| Concern | Tool |
-|---|---|
-| Framework | Next.js 16.3.4 (App Router), React 19.2.8, TypeScript |
+| Concern                    | Tool                                                                                                         |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Framework                  | Next.js 16.3.4 (App Router), React 19.2.8, TypeScript                                                        |
 | Validation / domain schema | Zod 4.5.4 — one schema drives form validation, the LLM's structured-output schema, and every TypeScript type |
-| Auth | Clerk (`@clerk/nextjs`) — sessions, organizations, two built-in org roles |
-| Database | Supabase Postgres (`@supabase/supabase-js`), service-role key, server-only |
-| LLM | Gemini free tier (`@google/genai`) — narrative drafting only, never fact storage |
-| Money | decimal.js — every rupee and percentage; never a native float |
-| Document export | `docx` (Word), `exceljs` (gap workbook), `jszip` (document vault), `unpdf` (PDF text layer, dormant feature) |
-| Forms | React Hook Form + `@hookform/resolvers` |
-| UI | Tailwind 4, shadcn/ui, lucide-react |
-| Tests | Vitest 5 |
-
-**Deliberately not used:** Python, a vector database, RAG, Redis, Docker, GraphQL, a monorepo, an E2E suite,
-Postgres RLS policies (RLS is enabled but carries zero policies — see **Auth and access control** below for
-why that's not a gap).
+| Auth                       | Clerk (`@clerk/nextjs`) — sessions, organizations, two built-in org roles                                    |
+| Database                   | Supabase Postgres (`@supabase/supabase-js`), service-role key, server-only                                   |
+| LLM                        | Gemini free tier (`@google/genai`) — narrative drafting only, never fact storage                             |
+| Money                      | decimal.js — every rupee and percentage; never a native float                                                |
+| Document export            | `docx` (Word), `exceljs` (gap workbook), `jszip` (document vault), `unpdf` (PDF text layer, dormant feature) |
+| Forms                      | React Hook Form + `@hookform/resolvers`                                                                      |
+| UI                         | Tailwind 4, shadcn/ui, lucide-react                                                                          |
+| Tests                      | Vitest 5                                                                                                     |
 
 ## Which store holds what
 
-There's no MySQL/Mongo-style split here — everything relational lives in one Postgres database — but it's
-still worth separating by shape, because five very different-sounding features all turned out to be the same
-thing on disk:
-
-| Store | Holds | Why |
-|---|---|---|
+| Store                                             | Holds                                                                       | Why                                                                                                                                                                                                                                |
+| ------------------------------------------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `versioned_records` (Postgres, one generic table) | fact base, section status, certification, narrative drafts, risk dismissals | All five were independently "an append-only version history keyed by an id, read-latest-wins." One table with a `(org_id, kind, key, version)` primary key instead of five near-identical ones — `kind` keeps them from colliding. |
-| `audit_log` (Postgres, its own table) | every review/workflow action | A flat, ever-growing log with no "current" state — nothing to version. |
-| `comment_events` (Postgres, its own table) | section comment threads | Append-only too, but many events belong to one *section*, not one linear history per id. |
-| Clerk (external, not queried directly) | users, organizations, sessions, org roles | Auth is a bought problem, not a built one. |
-| Gemini (external, stateless) | nothing persisted here | Drafts text on request; every accepted draft is immediately written back into `versioned_records` — the model itself holds no state between calls. |
+| `audit_log` (Postgres, its own table)             | every review/workflow action                                                | A flat, ever-growing log with no "current" state — nothing to version.                                                                                                                                                             |
+| `comment_events` (Postgres, its own table)        | section comment threads                                                     | Append-only too, but many events belong to one _section_, not one linear history per id.                                                                                                                                           |
+| Clerk (external, not queried directly)            | users, organizations, sessions, org roles                                   | Auth is a bought problem, not a built one.                                                                                                                                                                                         |
+| Gemini (external, stateless)                      | nothing persisted here                                                      | Drafts text on request; every accepted draft is immediately written back into `versioned_records` — the model itself holds no state between calls.                                                                                 |
 
 ## Architecture
 
@@ -298,6 +285,7 @@ disappears from every export the moment certification happens.
 ## Getting started
 
 ### Prerequisites
+
 - Node.js (observed working on v22; no `engines` field is pinned in `package.json`)
 - A Clerk application with **Organizations** enabled
 - A Supabase project (Postgres)
@@ -362,24 +350,21 @@ npx tsc --noEmit
 
 ## Routes
 
-Not a conventional REST API — most pages are Server Components reading the fact base directly, and most
-writes go through Server Actions rather than fetchable JSON endpoints. Only exports are real Route Handlers.
-
-| Route | What it is | Access |
-|---|---|---|
-| `/` | Home — readiness summary, links into the rest of the app | signed-in org member |
-| `/sign-in`, `/sign-up` | Clerk-hosted auth | public |
-| `/eligibility` | 6-step SEBI/exchange pre-check | signed-in org member — see **Known limitations** |
-| `/intake`, `/intake/[moduleId]` | The 10 fact-intake modules | signed-in org member |
-| `/document` | Live HTML preview, section by section | signed-in org member |
-| `/document/gaps` | On-screen gap dashboard | signed-in org member |
-| `/review` | Section status + comments | signed-in org member |
-| `/review/risks` | Fired risk factors, dismiss-with-reason | signed-in org member |
-| `/review/audit` | The append-only audit log | signed-in org member |
-| `/settings/members` | Real org member list + domain-role assignment | assignment itself is Owner-only |
-| `/export` | Links to every export format | signed-in org member |
-| `/export/docx`, `/export/pdf`, `/export/gaps`, `/export/vault` | Route Handlers streaming the actual files | signed-in org member |
-| `/extract` | Document-upload + AI-extraction UI | built, dormant — see **Known limitations** |
+| Route                                                          | What it is                                               | Access                                           |
+| -------------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------ |
+| `/`                                                            | Home — readiness summary, links into the rest of the app | signed-in org member                             |
+| `/sign-in`, `/sign-up`                                         | Clerk-hosted auth                                        | public                                           |
+| `/eligibility`                                                 | 6-step SEBI/exchange pre-check                           | signed-in org member — see **Known limitations** |
+| `/intake`, `/intake/[moduleId]`                                | The 10 fact-intake modules                               | signed-in org member                             |
+| `/document`                                                    | Live HTML preview, section by section                    | signed-in org member                             |
+| `/document/gaps`                                               | On-screen gap dashboard                                  | signed-in org member                             |
+| `/review`                                                      | Section status + comments                                | signed-in org member                             |
+| `/review/risks`                                                | Fired risk factors, dismiss-with-reason                  | signed-in org member                             |
+| `/review/audit`                                                | The append-only audit log                                | signed-in org member                             |
+| `/settings/members`                                            | Real org member list + domain-role assignment            | assignment itself is Owner-only                  |
+| `/export`                                                      | Links to every export format                             | signed-in org member                             |
+| `/export/docx`, `/export/pdf`, `/export/gaps`, `/export/vault` | Route Handlers streaming the actual files                | signed-in org member                             |
+| `/extract`                                                     | Document-upload + AI-extraction UI                       | built, dormant — see **Known limitations**       |
 
 ## How the important parts work
 
@@ -387,7 +372,7 @@ writes go through Server Actions rather than fetchable JSON endpoints. Only expo
 through the whole pipeline — share counts are safe as plain integers, prices and percentages are not.
 
 **Never invent.** A missing fact renders as a highlighted `[TO BE PROVIDED: ...]` **and** raises a gap, from
-the *same* check (`requiredFacts` on a section spec) — there's no path where one happens without the other.
+the _same_ check (`requiredFacts` on a section spec) — there's no path where one happens without the other.
 LLM drafting carries its own, separate version of the same discipline (see the never-invent diagram above).
 
 **Provenance sits beside a fact, not wrapped around it.** The obvious design wraps every value in
@@ -413,7 +398,7 @@ active org → an explicit `org_id` filter on every single query, in application
 **No RAG, no vector database, by design.** The regulatory knowledge here (citations, thresholds, template
 text) is small, fixed, and correctness-critical — it was extracted once from real filed prospectuses,
 corroborated across multiple documents, and hand-written as ordinary tested code with a citation. A live
-semantic search over that knowledge would risk retrieving something *close but wrong*, which a legal document
+semantic search over that knowledge would risk retrieving something _close but wrong_, which a legal document
 can't absorb. Per-issuer facts aren't a search problem either — a normal row lookup by an exact key is simpler
 and fully deterministic.
 
@@ -429,7 +414,7 @@ and fully deterministic.
    at runtime.
 4. **The 8th document was never touched while anything was being built.** It exists purely as an independent
    check run afterward, and it caught real mistakes this way — including an individual-bid cap that two
-   *building* documents agreed on, which turned out to be wrong main-board boilerplate already shipped into a
+   _building_ documents agreed on, which turned out to be wrong main-board boilerplate already shipped into a
    live rejection rule.
 
 The 22 risk archetypes went through the same process, applied to the "Risk Factors" chapters specifically: a
@@ -488,40 +473,22 @@ components/                      module-form.tsx (one renderer for all 10 module
 
 ## Known limitations
 
-- **`/eligibility` now requires sign-in, contradicting its own original pitch.** It was designed and is still
-  described as a standalone, no-signup pre-check — but the Clerk middleware only exempts `/sign-in` and
-  `/sign-up`, so every other route, this one included, now requires an authenticated session. Not yet
-  reconciled.
-- **The Clerk + Postgres migration is real but unpushed.** It exists as working code in the local tree,
-  verified by the test suite, but the last actual commit predates it — the live demo above does not reflect
-  it.
+- **Vercel needs its own copy of every environment variable.** Pushing to git never pushes `.env.local` (it's
+  gitignored by design) — the deployed build throws Clerk's `Missing publishableKey` error until every variable
+  is added again under the Vercel project's Settings → Environment Variables, then redeployed.
 - **No server-side permission enforcement beyond one action.** Any signed-in org member can edit the fact
   base, change review status, and download every export; only assigning someone's domain role is restricted
   to the Owner. This was a deliberate reversal of an earlier, stricter version — not an oversight — but it's
   worth stating plainly rather than implying a finer-grained permission model exists.
 - **No Postgres RLS policies** — explained above, a documented trade-off, not an unnoticed gap.
-- **Document upload / AI extraction is built, tested, and permanently paused.** Hand-typed intake is the only
-  active path to get facts into the system; the extraction pipeline (`lib/document-intake/`, `app/(app)/extract/`)
-  still exists and still passes its own tests, dormant rather than deleted.
+
 - **The fixed-price SME branch was never built.** Branch points (`Section.appliesIf`) exist on the five
   sections that would differ from a book-built issue, but the reference corpus never grew past one fixed-price
   document, so there was never enough to extract a second template set from.
-- **22 of a roughly 40-archetype risk-factor target.** The engine and every supporting mechanism (dismissal,
-  "why this fired") are complete; this is a content-coverage gap, not an architecture one.
+- **The risk-factor registry is closed at 22 archetypes, short of the original ~40 target, by user decision.**
+  The engine and every supporting mechanism (dismissal, "why this fired") are complete; growing the registry
+  further is no longer planned work.
 - **No CI/CD, no Docker, no infrastructure-as-code.** Tests and type-checking are run by hand; the one SQL
-  migration is applied by hand via the Supabase dashboard.
-- **Comment threads have no UI.** The store and its actions exist; nothing currently calls them from a page.
+  migration was applied by hand via the Supabase dashboard.
 - **One organization = one issuer, with no cross-organization or portfolio view** — by design, not yet, since
   the app never had a multi-issuer concept to begin with.
-
-## Documentation
-
-| Need | File |
-|---|---|
-| Live status, next action | `.claude/context/04-session-handoff.md` |
-| Build checklist | `TODO.md` |
-| SME/IPO/SEBI domain knowledge | `.claude/context/01-domain-primer.md` |
-| Architecture detail, data shapes | `.claude/context/02-architecture.md` |
-| Why a decision was made | `.claude/context/03-decision-log.md` |
-| Verified regulatory citations | `.claude/context/05-rule-sources.md` |
-| Section map (from real prospectuses) | `.claude/context/07-section-map.md` |
